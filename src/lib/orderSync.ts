@@ -1,6 +1,48 @@
 import { supabase } from './supabase';
-import { Order } from '../types';
+import { Order, OrderItemDraft } from '../types';
 
+// ---------------------------------------------------------------------------
+// Create order + relational items (new approach)
+// ---------------------------------------------------------------------------
+export async function createOrderWithItems(
+  orderData: Partial<Order>,
+  items: OrderItemDraft[]
+) {
+  const { data: order, error: orderError } = await supabase
+    .from('orders')
+    .insert([{ ...orderData, status: 'pending' }])
+    .select()
+    .single();
+
+  if (orderError) throw orderError;
+
+  if (items.length > 0) {
+    const { error: itemsError } = await supabase.from('order_items').insert(
+      items.map((item) => ({
+        order_id: order.id,
+        product_name: item.product_name,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+      }))
+    );
+    if (itemsError) throw itemsError;
+  }
+
+  await supabase.from('order_events').insert([
+    {
+      order_id: order.id,
+      event_type: 'created',
+      description: `Pedido creado`,
+      metadata: { source: orderData.source },
+    },
+  ]);
+
+  return order;
+}
+
+// ---------------------------------------------------------------------------
+// Legacy create (kept for backward compat with old JSONB approach)
+// ---------------------------------------------------------------------------
 export async function createOrderWithTransaction(orderData: Partial<Order>) {
   const { data: order, error: orderError } = await supabase
     .from('orders')
@@ -22,14 +64,22 @@ export async function createOrderWithTransaction(orderData: Partial<Order>) {
   return order;
 }
 
+// ---------------------------------------------------------------------------
+// Update order status + write event log
+// ---------------------------------------------------------------------------
 export async function updateOrderStatus(
   orderId: string,
   newStatus: string,
   userId?: string
 ) {
+  const updatePayload: Record<string, string> = {
+    status: newStatus,
+    updated_at: new Date().toISOString(),
+  };
+
   const { data: order, error: orderError } = await supabase
     .from('orders')
-    .update({ status: newStatus, updated_at: new Date().toISOString() })
+    .update(updatePayload)
     .eq('id', orderId)
     .select()
     .single();
@@ -49,6 +99,9 @@ export async function updateOrderStatus(
   return order;
 }
 
+// ---------------------------------------------------------------------------
+// Assign order to driver
+// ---------------------------------------------------------------------------
 export async function assignOrderToDriver(
   orderId: string,
   driverId: string,
@@ -73,9 +126,10 @@ export async function assignOrderToDriver(
 
   if (assignmentError) throw assignmentError;
 
+  // Update the order's status + assigned_driver_id column
   await supabase
     .from('orders')
-    .update({ status: 'assigned' })
+    .update({ status: 'assigned', assigned_driver_id: driverId })
     .eq('id', orderId);
 
   await supabase
@@ -96,6 +150,9 @@ export async function assignOrderToDriver(
   return assignment;
 }
 
+// ---------------------------------------------------------------------------
+// Complete delivery
+// ---------------------------------------------------------------------------
 export async function completeDelivery(
   assignmentId: string,
   orderId: string,
@@ -156,7 +213,7 @@ export async function completeDelivery(
         assignment_id: assignmentId,
         driver_id: driverId,
         transaction_type: 'collection',
-        amount: order.total_amount + order.delivery_fee,
+        amount: order.total_amount + (order.delivery_fee || 0),
         payment_method: 'cash',
         status: 'pending',
       },
@@ -164,6 +221,9 @@ export async function completeDelivery(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Cancel order
+// ---------------------------------------------------------------------------
 export async function cancelOrder(
   orderId: string,
   reason: string,
@@ -210,4 +270,36 @@ export async function cancelOrder(
       metadata: { reason },
     },
   ]);
+}
+
+// ---------------------------------------------------------------------------
+// Delete order (hard delete — cascades to order_items + order_events)
+// ---------------------------------------------------------------------------
+export async function deleteOrderById(orderId: string) {
+  // Cancel any active assignments first to free up the driver
+  await cancelOrder(orderId, 'Pedido eliminado', undefined);
+
+  const { error } = await supabase.from('orders').delete().eq('id', orderId);
+  if (error) throw error;
+}
+
+// ---------------------------------------------------------------------------
+// Fetch single order with joined order_items
+// ---------------------------------------------------------------------------
+export async function getOrderWithItems(orderId: string) {
+  const { data, error } = await supabase
+    .from('orders')
+    .select(`
+      *,
+      order_items(*),
+      driver:assigned_driver_id(
+        id, vehicle_plate, vehicle_type,
+        profiles:user_id(full_name)
+      )
+    `)
+    .eq('id', orderId)
+    .single();
+
+  if (error) throw error;
+  return data;
 }

@@ -41,8 +41,17 @@ export interface Driver {
   status: DriverStatus;
   rating: number;
   total_deliveries: number;
+  /** TMS fields */
+  active_load_count: number;
+  current_lat?: number | null;
+  current_lng?: number | null;
   created_at: string;
   updated_at: string;
+}
+
+/** Driver with joined profile name for dispatch UI */
+export interface DriverWithProfile extends Driver {
+  profiles?: { full_name: string } | null;
 }
 
 export interface Customer {
@@ -72,6 +81,8 @@ export interface Order {
   order_number: string;
   customer_id?: string;
   conversation_id?: string;
+  customer_name?: string;
+  customer_phone?: string;
   order_type: OrderType;
   source: OrderSource;
   status: OrderStatus;
@@ -88,6 +99,7 @@ export interface Order {
   payment_status: PaymentStatus;
   scheduled_pickup?: string;
   scheduled_delivery?: string;
+  assigned_driver_id?: string;
   created_at: string;
   updated_at: string;
 }
@@ -97,6 +109,30 @@ export interface OrderItem {
   quantity: number;
   price?: number;
   notes?: string;
+}
+
+/** Row from the relational `order_items` table */
+export interface OrderItemRelational {
+  id: string;
+  order_id: string;
+  product_name: string;
+  quantity: number;
+  unit_price: number;
+  subtotal: number;
+  created_at: string;
+}
+
+/** Form state used when creating/editing order items */
+export interface OrderItemDraft {
+  product_name: string;
+  quantity: number;
+  unit_price: number;
+}
+
+/** Extended Order with joined order_items rows */
+export interface OrderWithItems extends Order {
+  order_items?: OrderItemRelational[];
+  driver?: { id: string; vehicle_plate?: string; vehicle_type?: string; profiles?: { full_name: string } };
 }
 
 export interface Contact {
@@ -166,4 +202,34 @@ export interface ChatMessage {
   message: string;
   metadata: Record<string, unknown>;
   created_at: string;
+}
+
+// ============================================================
+// TMS / Dispatch types
+// ============================================================
+
+export type RouteStatus = 'active' | 'completed' | 'cancelled';
+export type RouteStopStatus = 'pending' | 'reached' | 'completed';
+
+export interface DriverRoute {
+  id: string;
+  driver_id: string;
+  route_date: string;
+  status: RouteStatus;
+  created_at: string;
+  /** Joined */
+  driver?: DriverWithProfile;
+  route_stops?: RouteStop[];
+}
+
+export interface RouteStop {
+  id: string;
+  route_id: string;
+  order_id: string;
+  stop_sequence: number;
+  estimated_arrival?: string | null;
+  status: RouteStopStatus;
+  created_at: string;
+  /** Joined */
+  order?: Pick<Order, 'order_number' | 'customer_name' | 'delivery_address' | 'priority' | 'total_amount'>;
 }
