@@ -118,3 +118,31 @@ export function useRealtimeChat(conversationId: string, callback: () => void) {
     };
   }, [conversationId, callback]);
 }
+
+export function useRealtimeDriverRoutes(callback: () => void) {
+  useEffect(() => {
+    const channel = supabase
+      .channel('driver-routes-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'driver_routes' },
+        () => { callback(); }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [callback]);
+}
+
+export function useRealtimeRouteStops(callback: () => void) {
+  useEffect(() => {
+    const channel = supabase
+      .channel('route-stops-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'route_stops' },
+        () => { callback(); }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [callback]);
+}
