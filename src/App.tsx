@@ -8,6 +8,7 @@ import OrderManagement from './components/modules/OrderManagement';
 import DispatchManagement from './components/modules/DispatchManagement';
 import FinanceManagement from './components/modules/FinanceManagement';
 import FleetManagement from './components/modules/FleetManagement';
+import GlobalNotifications from './components/GlobalNotifications';
 
 function AppContent() {
   const { user, loading } = useAuth();
@@ -45,9 +46,12 @@ function AppContent() {
   };
 
   return (
-    <Layout currentModule={currentModule} onModuleChange={setCurrentModule}>
-      {renderModule()}
-    </Layout>
+    <>
+      <Layout currentModule={currentModule} onModuleChange={setCurrentModule}>
+        {renderModule()}
+      </Layout>
+      <GlobalNotifications />
+    </>
   );
 }
 
@@ -60,3 +64,4 @@ function App() {
 }
 
 export default App;
+
