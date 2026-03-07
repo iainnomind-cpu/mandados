@@ -23,7 +23,7 @@ function playNotificationSound(type: 'message' | 'order') {
 
         if (type === 'message') {
             // Short double-beep for messages
-            oscillator.frequency.setValueAtTime(880, ctx.currentTime);        // A5
+            oscillator.frequency.setValueAtTime(880, ctx.currentTime);
             gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
             gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
             gainNode.gain.setValueAtTime(0.3, ctx.currentTime + 0.15);
@@ -32,20 +32,18 @@ function playNotificationSound(type: 'message' | 'order') {
             oscillator.stop(ctx.currentTime + 0.3);
         } else {
             // Rising chime for orders
-            oscillator.frequency.setValueAtTime(523, ctx.currentTime);        // C5
-            oscillator.frequency.setValueAtTime(659, ctx.currentTime + 0.1);  // E5
-            oscillator.frequency.setValueAtTime(784, ctx.currentTime + 0.2);  // G5
-            oscillator.frequency.setValueAtTime(1047, ctx.currentTime + 0.3); // C6
+            oscillator.frequency.setValueAtTime(523, ctx.currentTime);
+            oscillator.frequency.setValueAtTime(659, ctx.currentTime + 0.1);
+            oscillator.frequency.setValueAtTime(784, ctx.currentTime + 0.2);
+            oscillator.frequency.setValueAtTime(1047, ctx.currentTime + 0.3);
             gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
             gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
             oscillator.start(ctx.currentTime);
             oscillator.stop(ctx.currentTime + 0.5);
         }
 
-        // Cleanup
         oscillator.onended = () => ctx.close();
     } catch (e) {
-        // Audio not available — silent fallback
         console.warn('Audio not available:', e);
     }
 }
@@ -61,7 +59,12 @@ function showBrowserNotification(title: string, body: string) {
 export function useGlobalNotifications() {
     const [notifications, setNotifications] = useState<AppNotification[]>([]);
     const [latestToast, setLatestToast] = useState<AppNotification | null>(null);
-    const initializedRef = useRef(false);
+
+    // Use refs to avoid stale closures in polling/realtime callbacks
+    const addNotificationRef = useRef<(n: Omit<AppNotification, 'id' | 'timestamp' | 'read'>) => void>();
+    const lastMessageIdRef = useRef<string | null>(null);
+    const lastOrderIdRef = useRef<string | null>(null);
+    const hasInitialLoadRef = useRef(false);
 
     const addNotification = useCallback((n: Omit<AppNotification, 'id' | 'timestamp' | 'read'>) => {
         const notification: AppNotification = {
@@ -71,82 +74,122 @@ export function useGlobalNotifications() {
             read: false,
         };
 
-        setNotifications((prev) => [notification, ...prev].slice(0, 50)); // keep 50 max
+        setNotifications((prev) => [notification, ...prev].slice(0, 50));
         setLatestToast(notification);
-
-        // Play sound
         playNotificationSound(n.type === 'new_message' ? 'message' : 'order');
 
-        // Browser notification (if tab not focused)
         if (document.hidden) {
             showBrowserNotification(n.title, n.body);
         }
     }, []);
 
-    const dismissToast = useCallback(() => {
-        setLatestToast(null);
-    }, []);
+    addNotificationRef.current = addNotification;
 
-    const clearNotifications = useCallback(() => {
-        setNotifications([]);
-    }, []);
-
+    const dismissToast = useCallback(() => setLatestToast(null), []);
+    const clearNotifications = useCallback(() => setNotifications([]), []);
     const markAllRead = useCallback(() => {
         setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     }, []);
 
     const unreadCount = notifications.filter((n) => !n.read).length;
 
-    // ─── Request browser notification permission on mount ───
+    // Request browser notification permission
     useEffect(() => {
         if ('Notification' in window && Notification.permission === 'default') {
             Notification.requestPermission();
         }
     }, []);
 
-    // ─── Subscribe to realtime events ───
+    // ─── Polling for new messages & orders ───
     useEffect(() => {
-        if (initializedRef.current) return;
-        initializedRef.current = true;
+        // Initial load: just capture the latest IDs without notifying
+        const initializeIds = async () => {
+            const { data: latestMsg } = await supabase
+                .from('chat_messages')
+                .select('id')
+                .eq('sender_type', 'customer')
+                .order('created_at', { ascending: false })
+                .limit(1);
 
-        // Listen for new customer messages (not bot/operator)
-        const channel = supabase
-            .channel('global-notifications')
-            .on('postgres_changes', {
-                event: 'INSERT',
-                schema: 'public',
-                table: 'chat_messages',
-            }, (payload: any) => {
-                const msg = payload.new;
-                if (msg.sender_type === 'customer') {
-                    addNotification({
+            if (latestMsg && latestMsg.length > 0) {
+                lastMessageIdRef.current = latestMsg[0].id;
+            }
+
+            const { data: latestOrder } = await supabase
+                .from('orders')
+                .select('id')
+                .order('created_at', { ascending: false })
+                .limit(1);
+
+            if (latestOrder && latestOrder.length > 0) {
+                lastOrderIdRef.current = latestOrder[0].id;
+            }
+
+            hasInitialLoadRef.current = true;
+        };
+
+        initializeIds();
+
+        // Poll every 5 seconds for new customer messages
+        const pollInterval = setInterval(async () => {
+            if (!hasInitialLoadRef.current) return;
+
+            // Check for new customer messages
+            let msgQuery = supabase
+                .from('chat_messages')
+                .select('id, message, sender_type, created_at')
+                .eq('sender_type', 'customer')
+                .order('created_at', { ascending: false })
+                .limit(5);
+
+            if (lastMessageIdRef.current) {
+                msgQuery = msgQuery.gt('id', lastMessageIdRef.current);
+            }
+
+            const { data: newMessages } = await msgQuery;
+
+            if (newMessages && newMessages.length > 0) {
+                // Update last seen ID
+                lastMessageIdRef.current = newMessages[0].id;
+
+                // Notify for each new message
+                for (const msg of newMessages.reverse()) {
+                    addNotificationRef.current?.({
                         type: 'new_message',
                         title: '💬 Nuevo mensaje',
                         body: msg.message?.substring(0, 80) || 'Mensaje recibido',
                     });
                 }
-            })
-            .on('postgres_changes', {
-                event: 'INSERT',
-                schema: 'public',
-                table: 'orders',
-            }, (payload: any) => {
-                const order = payload.new;
-                if (order.source === 'chatbot') {
-                    addNotification({
+            }
+
+            // Check for new orders
+            let orderQuery = supabase
+                .from('orders')
+                .select('id, order_number, customer_name, source, created_at')
+                .order('created_at', { ascending: false })
+                .limit(5);
+
+            if (lastOrderIdRef.current) {
+                orderQuery = orderQuery.gt('id', lastOrderIdRef.current);
+            }
+
+            const { data: newOrders } = await orderQuery;
+
+            if (newOrders && newOrders.length > 0) {
+                lastOrderIdRef.current = newOrders[0].id;
+
+                for (const order of newOrders.reverse()) {
+                    addNotificationRef.current?.({
                         type: 'new_order',
                         title: '📦 ¡Nuevo pedido!',
                         body: `Pedido ${order.order_number || ''} — ${order.customer_name || 'WhatsApp'}`,
                     });
                 }
-            })
-            .subscribe();
+            }
+        }, 5000);
 
-        return () => {
-            supabase.removeChannel(channel);
-            initializedRef.current = false;
-        };
-    }, [addNotification]);
+        return () => clearInterval(pollInterval);
+    }, []);
 
     return {
         notifications,
