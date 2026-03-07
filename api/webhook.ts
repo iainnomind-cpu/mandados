@@ -12,7 +12,53 @@ const WHATSAPP_VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN!;
 
 const GRAPH_API_URL = `https://graph.facebook.com/v21.0/${WHATSAPP_PHONE_ID}/messages`;
 
-const SYSTEM_PROMPT = `Eres un asistente virtual de "Mandados ERP", un servicio de mandados y entregas.
+// ─────────────────────────────────────────────────────────
+// Dynamic system prompt builder
+// ─────────────────────────────────────────────────────────
+interface CustomerContext {
+  name: string | null;
+  lastDeliveryAddress: string | null;
+}
+
+function buildSystemPrompt(ctx: CustomerContext): string {
+  const isReturning = !!(ctx.name && ctx.lastDeliveryAddress);
+
+  if (isReturning) {
+    return `Eres un asistente virtual de "Mandados ERP", un servicio de mandados y entregas.
+Tu ÚNICO trabajo es tomar pedidos.
+
+DATOS DEL CLIENTE (ya guardados de pedidos anteriores):
+- Nombre: ${ctx.name}
+- Dirección de entrega habitual: ${ctx.lastDeliveryAddress}
+
+FLUJO PARA CLIENTE RECURRENTE (sigue este flujo ESTRICTO):
+PASO 1 → Saluda al cliente por su nombre (${ctx.name}) y pregunta: ¿Qué necesitas pedir hoy?
+PASO 2 → Pregunta: ¿Dónde pasamos a recogerlo? (dirección de recolección)
+PASO 3 → Pregunta: ¿Lo entregamos en tu dirección habitual (${ctx.lastDeliveryAddress}) o prefieres otra dirección?
+PASO 4 → Mostrar resumen completo y pedir CONFIRMACIÓN
+
+REGLAS ESTRICTAS:
+- YA TIENES el nombre del cliente, NO lo preguntes de nuevo.
+- Si el cliente dice "sí", "la misma", "ahí mismo", etc. para la dirección de entrega, usa la dirección habitual guardada.
+- Si el cliente quiere cambiar la dirección de entrega, acéptala y usa la nueva.
+- Si el cliente da varios datos en un mensaje, acéptalos pero SIEMPRE pregunta por los que falten.
+- NUNCA asumas datos que el cliente no ha proporcionado explícitamente (excepto nombre y dirección habitual que ya tienes).
+- NUNCA preguntes "¿Necesitas algo más?" HASTA que hayas completado todos los pasos.
+- Cuando tengas un pedido anterior en el historial marcado con [PEDIDO COMPLETADO], IGNORA esos datos — son de un pedido anterior. Empieza un nuevo flujo desde PASO 1.
+- Sé amigable, usa emojis moderadamente y habla en español.
+- Mantén las respuestas cortas (1-2 líneas por mensaje).
+- Cuando el cliente CONFIRME el pedido (diga "sí", "correcto", "confirmo", etc.), responde con un mensaje breve de confirmación Y agrega al final un bloque JSON:
+
+\`\`\`json
+{"pedido_completo": true, "items": "descripción del pedido", "nombre_cliente": "${ctx.name}", "direccion_recoger": "dirección de recolección", "direccion_entregar": "dirección de entrega"}
+\`\`\`
+
+- NO incluyas el JSON hasta que el cliente haya CONFIRMADO.
+- Si el cliente saluda, responde brevemente usando su nombre y pregunta qué necesita pedir (PASO 1).`;
+  }
+
+  // New customer — full flow
+  return `Eres un asistente virtual de "Mandados ERP", un servicio de mandados y entregas.
 Tu ÚNICO trabajo es tomar pedidos. Sigue este flujo ESTRICTO:
 
 FLUJO OBLIGATORIO (no saltes ningún paso):
@@ -38,6 +84,7 @@ REGLAS ESTRICTAS:
 
 - NO incluyas el JSON hasta que el cliente haya CONFIRMADO.
 - Si el cliente saluda, responde brevemente y pregunta qué necesita pedir (PASO 1).`;
+}
 
 // ─────────────────────────────────────────────────────────
 // Supabase helpers (using fetch, no SDK needed)
@@ -55,7 +102,6 @@ async function supabaseGet(table: string, query: string): Promise<any[]> {
   const res = await fetch(url, { headers: supabaseHeaders });
   const body = await res.json();
 
-  // PostgREST returns an array on success, or an object with error info
   if (!res.ok || !Array.isArray(body)) {
     console.error('⚠️ Supabase GET error:', JSON.stringify(body));
     return [];
@@ -119,14 +165,65 @@ async function sendWhatsAppMessage(to: string, text: string): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────
-// OpenAI Chat Completion
+// WhatsApp Media download helper
 // ─────────────────────────────────────────────────────────
-interface OAIMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
+async function downloadWhatsAppMedia(mediaId: string): Promise<string | null> {
+  try {
+    // Step 1: Get the media URL from WhatsApp
+    const metaRes = await fetch(`https://graph.facebook.com/v21.0/${mediaId}`, {
+      headers: { 'Authorization': `Bearer ${WHATSAPP_TOKEN}` },
+    });
+
+    if (!metaRes.ok) {
+      console.error('❌ Error getting media metadata:', await metaRes.text());
+      return null;
+    }
+
+    const metaData = await metaRes.json();
+    const mediaUrl = metaData.url;
+
+    if (!mediaUrl) {
+      console.error('❌ No URL in media metadata');
+      return null;
+    }
+
+    // Step 2: Download the actual image binary
+    const imgRes = await fetch(mediaUrl, {
+      headers: { 'Authorization': `Bearer ${WHATSAPP_TOKEN}` },
+    });
+
+    if (!imgRes.ok) {
+      console.error('❌ Error downloading media:', imgRes.status);
+      return null;
+    }
+
+    const buffer = await imgRes.arrayBuffer();
+    const base64 = Buffer.from(buffer).toString('base64');
+    const mimeType = metaData.mime_type || 'image/jpeg';
+
+    console.log(`📸 Imagen descargada: ${(buffer.byteLength / 1024).toFixed(1)} KB, tipo: ${mimeType}`);
+    return `data:${mimeType};base64,${base64}`;
+  } catch (e) {
+    console.error('❌ Error descargando media:', e);
+    return null;
+  }
 }
 
-async function getChatGPTResponse(messages: OAIMessage[]): Promise<string> {
+// ─────────────────────────────────────────────────────────
+// OpenAI Chat Completion (supports text + vision)
+// ─────────────────────────────────────────────────────────
+type OAIContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string; detail?: 'low' | 'high' } };
+
+interface OAIMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string | OAIContentPart[];
+}
+
+async function getChatGPTResponse(messages: OAIMessage[], useVision: boolean = false): Promise<string> {
+  const model = useVision ? 'gpt-4o' : 'gpt-4o-mini';
+
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -134,7 +231,7 @@ async function getChatGPTResponse(messages: OAIMessage[]): Promise<string> {
       'Authorization': `Bearer ${OPENAI_API_KEY}`,
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini',
+      model,
       messages,
       temperature: 0.7,
       max_tokens: 500,
@@ -202,12 +299,143 @@ function formatPhone(raw: string): string {
 }
 
 // ─────────────────────────────────────────────────────────
+// Fetch customer context (name + last delivery address)
+// ─────────────────────────────────────────────────────────
+async function getCustomerContext(customerId: string, customer: any): Promise<CustomerContext> {
+  const ctx: CustomerContext = {
+    name: customer.name || null,
+    lastDeliveryAddress: null,
+  };
+
+  // Try to get address from customer.addresses first
+  if (customer.addresses && Array.isArray(customer.addresses) && customer.addresses.length > 0) {
+    const lastAddr = customer.addresses[customer.addresses.length - 1];
+    ctx.lastDeliveryAddress = typeof lastAddr === 'string'
+      ? lastAddr
+      : lastAddr.street || lastAddr.address || JSON.stringify(lastAddr);
+  }
+
+  // Fallback: check the last completed order's delivery address
+  if (!ctx.lastDeliveryAddress) {
+    const lastOrders = await supabaseGet(
+      'orders',
+      `customer_id=eq.${customerId}&status=eq.delivered&select=delivery_address,customer_name&order=created_at.desc&limit=1`
+    );
+
+    if (lastOrders.length > 0) {
+      const addr = lastOrders[0].delivery_address;
+      if (addr) {
+        ctx.lastDeliveryAddress = typeof addr === 'string'
+          ? addr
+          : addr.street || addr.address || JSON.stringify(addr);
+      }
+      // Also get name from last order if we don't have it
+      if (!ctx.name && lastOrders[0].customer_name) {
+        ctx.name = lastOrders[0].customer_name;
+      }
+    }
+  }
+
+  // Also check pending/confirmed/assigned/in_transit orders (not just delivered)
+  if (!ctx.lastDeliveryAddress) {
+    const recentOrders = await supabaseGet(
+      'orders',
+      `customer_id=eq.${customerId}&select=delivery_address,customer_name&order=created_at.desc&limit=1`
+    );
+
+    if (recentOrders.length > 0) {
+      const addr = recentOrders[0].delivery_address;
+      if (addr) {
+        ctx.lastDeliveryAddress = typeof addr === 'string'
+          ? addr
+          : addr.street || addr.address || JSON.stringify(addr);
+      }
+      if (!ctx.name && recentOrders[0].customer_name) {
+        ctx.name = recentOrders[0].customer_name;
+      }
+    }
+  }
+
+  return ctx;
+}
+
+// ─────────────────────────────────────────────────────────
+// Save delivery address to customer profile
+// ─────────────────────────────────────────────────────────
+async function saveDeliveryAddress(customerId: string, address: string): Promise<void> {
+  try {
+    // Fetch current addresses
+    const customers = await supabaseGet('customers', `id=eq.${customerId}&select=addresses`);
+    if (customers.length === 0) return;
+
+    let addresses: string[] = [];
+    if (customers[0].addresses && Array.isArray(customers[0].addresses)) {
+      addresses = customers[0].addresses.map((a: any) =>
+        typeof a === 'string' ? a : a.street || a.address || ''
+      ).filter(Boolean);
+    }
+
+    // Don't duplicate — check if this address (or similar) is already stored
+    const normalized = address.toLowerCase().trim();
+    const alreadyExists = addresses.some(
+      (a) => a.toLowerCase().trim() === normalized
+    );
+
+    if (!alreadyExists) {
+      addresses.push(address);
+      // Keep only the last 5 addresses
+      if (addresses.length > 5) addresses = addresses.slice(-5);
+    }
+
+    await supabaseUpdate('customers', customerId, { addresses });
+    console.log('💾 Dirección guardada en perfil del cliente');
+  } catch (e) {
+    console.error('⚠️ Error guardando dirección:', e);
+  }
+}
+
+// ─────────────────────────────────────────────────────────
+// Analyze image with GPT-4o Vision
+// ─────────────────────────────────────────────────────────
+async function analyzeImageWithVision(imageDataUrl: string, caption?: string): Promise<string> {
+  const userContent: OAIContentPart[] = [
+    {
+      type: 'image_url',
+      image_url: { url: imageDataUrl, detail: 'low' },
+    },
+    {
+      type: 'text',
+      text: caption
+        ? `El cliente envió esta imagen con el texto: "${caption}". Identifica los productos o artículos que se ven en la imagen para un pedido de mandados. Lista solo los productos de forma clara y concisa.`
+        : 'El cliente envió esta imagen. Identifica los productos o artículos que se ven en la imagen para un pedido de mandados. Si es una lista escrita a mano, transcríbela. Si son productos (leche, refresco, etc.), descríbelos. Lista solo los productos de forma clara y concisa.',
+    },
+  ];
+
+  const messages: OAIMessage[] = [
+    {
+      role: 'system',
+      content: 'Eres un asistente que identifica productos en imágenes para un servicio de mandados. Responde SOLO con la lista de productos identificados, sin explicaciones extra. Si no puedes identificar productos, di "No pude identificar productos claros en la imagen".',
+    },
+    {
+      role: 'user',
+      content: userContent,
+    },
+  ];
+
+  return getChatGPTResponse(messages, true);
+}
+
+// ─────────────────────────────────────────────────────────
 // Main message processing logic
 // ─────────────────────────────────────────────────────────
-async function processIncomingMessage(from: string, messageText: string): Promise<void> {
+async function processIncomingMessage(
+  from: string,
+  messageText: string,
+  imageDataUrl?: string | null
+): Promise<void> {
   try {
     console.log(`\n${'='.repeat(50)}`);
-    console.log(`📱 Procesando mensaje de ${from}: "${messageText}"`);
+    console.log(`📱 Procesando mensaje de ${from}: "${messageText || '[imagen]'}"`);
 
     // 1. Find or create customer by phone
     let customers = await supabaseGet('customers', `phone=eq.${encodeURIComponent(from)}&select=*`);
@@ -226,7 +454,6 @@ async function processIncomingMessage(from: string, messageText: string): Promis
     }
 
     // 2. Find active conversation for this customer on WhatsApp
-    //    Use customer phone as the channel identifier so it shows in the UI
     const channelLabel = `whatsapp:${formatPhone(from)}`;
 
     let conversations = await supabaseGet(
@@ -245,23 +472,42 @@ async function processIncomingMessage(from: string, messageText: string): Promis
       console.log('💬 Nueva conversación creada:', conversation.id);
     } else {
       conversation = conversations[0];
-      // Update channel label if needed (in case old conversations used generic "whatsapp")
       if (conversation.channel !== channelLabel) {
         await supabaseUpdate('chat_conversations', conversation.id, { channel: channelLabel });
       }
       console.log('💬 Conversación existente:', conversation.id);
     }
 
-    // 3. Load message history for this conversation (last 20 messages)
+    // 3. If image, analyze it with Vision first
+    let effectiveMessageText = messageText;
+
+    if (imageDataUrl) {
+      console.log('📸 Analizando imagen con GPT-4o Vision...');
+      const imageAnalysis = await analyzeImageWithVision(imageDataUrl, messageText || undefined);
+      console.log('📸 Productos identificados:', imageAnalysis);
+
+      // Combine image analysis with any caption text
+      effectiveMessageText = messageText
+        ? `${messageText}\n\n[El cliente también envió una imagen. Productos identificados en la imagen: ${imageAnalysis}]`
+        : `[El cliente envió una imagen con productos. Productos identificados: ${imageAnalysis}]`;
+    }
+
+    // 4. Get customer context (name, last address) for smart prompt
+    const customerCtx = await getCustomerContext(customer.id, customer);
+    console.log('🧠 Contexto del cliente:', JSON.stringify(customerCtx));
+
+    const systemPrompt = buildSystemPrompt(customerCtx);
+
+    // 5. Load message history for this conversation (last 20 messages)
     const dbMessages = await supabaseGet(
       'chat_messages',
       `conversation_id=eq.${conversation.id}&select=sender_type,message&order=created_at.asc&limit=20`
     );
     console.log(`📜 Historial: ${dbMessages.length} mensajes previos`);
 
-    // 4. Build OpenAI messages array
+    // 6. Build OpenAI messages array
     const openaiMessages: OAIMessage[] = [
-      { role: 'system', content: SYSTEM_PROMPT },
+      { role: 'system', content: systemPrompt },
     ];
 
     for (const msg of dbMessages) {
@@ -272,26 +518,26 @@ async function processIncomingMessage(from: string, messageText: string): Promis
     }
 
     // Add the current message
-    openaiMessages.push({ role: 'user', content: messageText });
+    openaiMessages.push({ role: 'user', content: effectiveMessageText });
 
-    // 5. Save user message to DB
+    // 7. Save user message to DB
     await supabaseInsert('chat_messages', {
       conversation_id: conversation.id,
       sender_type: 'customer',
-      message: messageText,
+      message: effectiveMessageText,
     });
 
-    // 5b. Check if bot is paused (operator has taken over)
+    // 7b. Check if bot is paused (operator has taken over)
     if (conversation.bot_paused === true) {
       console.log('⏸️ Bot pausado — mensaje guardado, sin respuesta automática');
-      return; // Operator will respond manually from the panel
+      return;
     }
 
-    // 6. Get ChatGPT response
+    // 8. Get ChatGPT response
     const gptResponse = await getChatGPTResponse(openaiMessages);
     console.log('🤖 ChatGPT:', gptResponse);
 
-    // 7. Check if order is complete
+    // 9. Check if order is complete
     const orderData = extractOrderData(gptResponse);
     let orderNumber: string | null = null;
 
@@ -300,7 +546,6 @@ async function processIncomingMessage(from: string, messageText: string): Promis
 
       orderNumber = generateOrderNumber();
 
-      // Create order with ALL required fields properly mapped
       const order = await supabaseInsert('orders', {
         order_number: orderNumber,
         customer_id: customer.id,
@@ -311,7 +556,6 @@ async function processIncomingMessage(from: string, messageText: string): Promis
         source: 'chatbot',
         status: 'pending',
         priority: 'normal',
-        // Frontend expects { street, city } format
         pickup_address: {
           street: orderData.direccion_recoger,
           city: '',
@@ -344,6 +588,11 @@ async function processIncomingMessage(from: string, messageText: string): Promis
           });
         }
 
+        // Save delivery address for future orders
+        if (orderData.direccion_entregar) {
+          await saveDeliveryAddress(customer.id, orderData.direccion_entregar);
+        }
+
         // Create order event
         await supabaseInsert('order_events', {
           order_id: order.id,
@@ -363,7 +612,7 @@ async function processIncomingMessage(from: string, messageText: string): Promis
       }
     }
 
-    // 8. Clean the response (remove JSON block) and save bot message
+    // 10. Clean the response (remove JSON block) and save bot message
     const cleanResponse = cleanResponseForWhatsApp(gptResponse);
     await supabaseInsert('chat_messages', {
       conversation_id: conversation.id,
@@ -371,7 +620,7 @@ async function processIncomingMessage(from: string, messageText: string): Promis
       message: cleanResponse,
     });
 
-    // 9. Build final message and send via WhatsApp
+    // 11. Build final message and send via WhatsApp
     let finalMessage = cleanResponse;
     if (orderData && orderNumber) {
       finalMessage += `\n\n📋 *Número de pedido:* ${orderNumber}`;
@@ -425,11 +674,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               const msgType = message.type;
 
               if (msgType === 'text' && message.text?.body) {
+                // Text message — process normally
                 await processIncomingMessage(from, message.text.body);
+
+              } else if (msgType === 'image') {
+                // Image message — download and analyze with Vision
+                const mediaId = message.image?.id;
+                const caption = message.image?.caption || '';
+
+                if (mediaId) {
+                  console.log(`📸 Imagen recibida de ${from}, media_id: ${mediaId}`);
+                  const imageDataUrl = await downloadWhatsAppMedia(mediaId);
+
+                  if (imageDataUrl) {
+                    await processIncomingMessage(from, caption, imageDataUrl);
+                  } else {
+                    await sendWhatsAppMessage(
+                      from,
+                      '😅 No pude procesar la imagen. ¿Podrías enviarla de nuevo o escribir tu pedido? 📝'
+                    );
+                  }
+                } else {
+                  await sendWhatsAppMessage(
+                    from,
+                    '😅 No pude recibir la imagen correctamente. ¿Podrías enviarla de nuevo? 📷'
+                  );
+                }
+
               } else {
+                // Unsupported message types (audio, video, sticker, etc.)
                 await sendWhatsAppMessage(
                   from,
-                  '📝 Por ahora solo puedo leer mensajes de texto. ¿Podrías escribir tu pedido? 😊'
+                  '📝 Por ahora puedo leer mensajes de texto e imágenes. ¿Podrías escribir tu pedido o enviar una foto? 😊'
                 );
               }
             }

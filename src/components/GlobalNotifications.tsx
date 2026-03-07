@@ -17,7 +17,7 @@ function NotificationItem({ n }: { n: AppNotification }) {
             </div>
             <div className="flex-1 min-w-0">
                 <p className="text-xs font-bold text-slate-700">{n.title}</p>
-                <p className="text-xs text-slate-500 truncate">{n.body}</p>
+                <p className="text-xs text-slate-500 line-clamp-2">{n.body}</p>
             </div>
             <span className="text-[10px] text-slate-400 shrink-0">{timeStr}</span>
         </div>
@@ -115,13 +115,13 @@ export default function GlobalNotifications() {
     return (
         <>
             <div className="fixed top-4 right-4 z-[9999]" style={{ animation: 'notif-slide-in 0.3s ease-out' }}>
-                <div className={`flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl border backdrop-blur-sm max-w-sm ${latestToast.type === 'new_message'
-                        ? 'bg-blue-50/95 border-blue-200'
-                        : 'bg-emerald-50/95 border-emerald-200'
+                <div className={`flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl border backdrop-blur-sm max-w-md ${latestToast.type === 'new_message'
+                    ? 'bg-blue-50/95 border-blue-200'
+                    : 'bg-emerald-50/95 border-emerald-200'
                     }`}>
                     <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${latestToast.type === 'new_message'
-                            ? 'bg-blue-500 text-white'
-                            : 'bg-emerald-500 text-white'
+                        ? 'bg-blue-500 text-white'
+                        : 'bg-emerald-500 text-white'
                         }`}>
                         {latestToast.type === 'new_message'
                             ? <MessageCircle className="w-5 h-5" />
@@ -130,7 +130,7 @@ export default function GlobalNotifications() {
                     </div>
                     <div className="flex-1 min-w-0">
                         <p className="text-sm font-bold text-slate-800">{latestToast.title}</p>
-                        <p className="text-xs text-slate-500 truncate">{latestToast.body}</p>
+                        <p className="text-xs text-slate-500 line-clamp-2">{latestToast.body}</p>
                     </div>
                     <button
                         onClick={dismissToast}
