@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Send, MessageCircle, User, Bot, Search, Phone, Pause, Play,
+  Send, MessageCircle, User, Search, Phone, Pause, Play,
   Clock, CheckCircle, AlertCircle, Filter, UserCheck, Info, X,
-  Package, MapPin, ChevronRight,
+  Package, MapPin,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import { useRealtimeChat, useRealtimeConversations } from '../../hooks/useRealtimeSync';
 import { ChatMessage, ChatConversation } from '../../types';
 
 // ─── Status config ───
@@ -81,10 +80,30 @@ export default function Chatbot() {
   useEffect(() => { loadConversations(); }, []);
 
   // ─── Real-time conversation list ───
-  const realtimeConvCallback = useCallback(() => {
-    loadConversations();
-  }, [loadConversations]);
-  useRealtimeConversations(realtimeConvCallback);
+  // ─── Real-time conversation list (direct subscription + polling) ───
+  const loadConvRef = useRef(loadConversations);
+  loadConvRef.current = loadConversations;
+
+  useEffect(() => {
+    // Polling fallback for conversations (every 5s)
+    const interval = setInterval(() => { loadConvRef.current(); }, 5000);
+
+    // Supabase realtime channel
+    const channel = supabase
+      .channel('chat-conv-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_conversations' }, () => {
+        loadConvRef.current();
+      })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, () => {
+        loadConvRef.current();
+      })
+      .subscribe();
+
+    return () => {
+      clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   // ─── Load messages ───
   const loadMessages = useCallback(async (convId: string) => {
@@ -106,11 +125,40 @@ export default function Chatbot() {
     }
   }, [selectedId, loadMessages]);
 
-  // ─── Real-time messages ───
-  const realtimeMsgCallback = useCallback(() => {
-    if (selectedId) loadMessages(selectedId);
-  }, [selectedId, loadMessages]);
-  useRealtimeChat(selectedId || '', realtimeMsgCallback);
+  // ─── Real-time messages (direct subscription + polling) ───
+  const selectedIdRef = useRef(selectedId);
+  selectedIdRef.current = selectedId;
+  const loadMessagesRef = useRef(loadMessages);
+  loadMessagesRef.current = loadMessages;
+
+  useEffect(() => {
+    if (!selectedId) return;
+
+    // Polling fallback (every 3s for the active chat)
+    const interval = setInterval(() => {
+      if (selectedIdRef.current) {
+        loadMessagesRef.current(selectedIdRef.current);
+      }
+    }, 3000);
+
+    // Supabase realtime channel for this conversation
+    const channel = supabase
+      .channel(`chat-msgs-${selectedId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'chat_messages',
+        filter: `conversation_id=eq.${selectedId}`,
+      }, () => {
+        loadMessagesRef.current(selectedId);
+      })
+      .subscribe();
+
+    return () => {
+      clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
+  }, [selectedId]);
 
   // ─── Auto-scroll ───
   useEffect(() => {
@@ -267,8 +315,8 @@ export default function Chatbot() {
               key={key}
               onClick={() => setStatusFilter(key)}
               className={`flex-1 text-xs font-medium py-1.5 rounded-md transition-all ${statusFilter === key
-                  ? 'bg-white text-blue-700 shadow-sm border border-blue-100'
-                  : 'text-slate-500 hover:text-slate-700 hover:bg-white/50'
+                ? 'bg-white text-blue-700 shadow-sm border border-blue-100'
+                : 'text-slate-500 hover:text-slate-700 hover:bg-white/50'
                 }`}
             >
               {label}
@@ -295,15 +343,15 @@ export default function Chatbot() {
                   key={conv.id}
                   onClick={() => setSelectedId(conv.id)}
                   className={`px-4 py-3.5 cursor-pointer border-b border-slate-50 transition-all ${isSelected
-                      ? 'bg-blue-50 border-l-[3px] border-l-blue-600'
-                      : 'hover:bg-slate-50 border-l-[3px] border-l-transparent'
+                    ? 'bg-blue-50 border-l-[3px] border-l-blue-600'
+                    : 'hover:bg-slate-50 border-l-[3px] border-l-transparent'
                     }`}
                 >
                   <div className="flex items-start gap-3">
                     {/* Avatar */}
                     <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${conv.status === 'active'
-                        ? 'bg-gradient-to-br from-green-400 to-emerald-500'
-                        : 'bg-slate-200'
+                      ? 'bg-gradient-to-br from-green-400 to-emerald-500'
+                      : 'bg-slate-200'
                       }`}>
                       <User className={`w-5 h-5 ${conv.status === 'active' ? 'text-white' : 'text-slate-400'}`} />
                     </div>
@@ -352,8 +400,8 @@ export default function Chatbot() {
             <div className="px-6 py-3.5 bg-white border-b border-slate-200 flex items-center justify-between shadow-sm">
               <div className="flex items-center gap-3">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center ${selectedConv.status === 'active'
-                    ? 'bg-gradient-to-br from-green-400 to-emerald-500'
-                    : 'bg-slate-200'
+                  ? 'bg-gradient-to-br from-green-400 to-emerald-500'
+                  : 'bg-slate-200'
                   }`}>
                   <User className={`w-5 h-5 ${selectedConv.status === 'active' ? 'text-white' : 'text-slate-400'}`} />
                 </div>
@@ -379,8 +427,8 @@ export default function Chatbot() {
                     onClick={toggleBotPause}
                     disabled={togglingBot}
                     className={`flex items-center gap-2 px-3 py-2 text-xs font-semibold rounded-lg border transition-all ${isBotPaused
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                        : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                      : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
                       }`}
                     title={isBotPaused ? 'Reanudar el bot automático' : 'Pausar el bot y responder manualmente'}
                   >
@@ -396,8 +444,8 @@ export default function Chatbot() {
                 <button
                   onClick={() => setShowInfoPanel(!showInfoPanel)}
                   className={`p-2 rounded-lg border transition-all ${showInfoPanel
-                      ? 'bg-blue-50 text-blue-600 border-blue-200'
-                      : 'text-slate-400 border-slate-200 hover:bg-slate-50 hover:text-slate-600'
+                    ? 'bg-blue-50 text-blue-600 border-blue-200'
+                    : 'text-slate-400 border-slate-200 hover:bg-slate-50 hover:text-slate-600'
                     }`}
                 >
                   <Info className="w-4 h-4" />
@@ -448,10 +496,10 @@ export default function Chatbot() {
                       )}
 
                       <div className={`px-4 py-2.5 rounded-2xl shadow-sm ${msg.sender_type === 'customer'
-                          ? 'bg-white border border-slate-200 text-slate-800 rounded-bl-md'
-                          : msg.sender_type === 'bot'
-                            ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-br-md'
-                            : 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-br-md'
+                        ? 'bg-white border border-slate-200 text-slate-800 rounded-bl-md'
+                        : msg.sender_type === 'bot'
+                          ? 'bg-gradient-to-br from-blue-500 to-blue-600 text-white rounded-br-md'
+                          : 'bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-br-md'
                         }`}>
                         <p className="text-sm whitespace-pre-wrap leading-relaxed">{msg.message}</p>
                         <p className={`text-[10px] mt-1 ${msg.sender_type === 'customer' ? 'text-slate-400' : 'text-white/70'
