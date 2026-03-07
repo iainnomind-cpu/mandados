@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Send, MessageCircle, User, Search, Phone, Pause, Play,
   Clock, CheckCircle, AlertCircle, Filter, UserCheck, Info, X,
-  Package, MapPin,
+  Package, MapPin, Trash2,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { ChatMessage, ChatConversation } from '../../types';
@@ -206,6 +206,24 @@ export default function Chatbot() {
       prev.map((c) => c.id === selectedId ? { ...c, bot_paused: newValue } : c)
     );
     setTogglingBot(false);
+  };
+
+  // ─── Delete conversation ───
+  const deleteConversation = async (convId: string) => {
+    if (!confirm('¿Estás seguro de eliminar esta conversación? Se borrarán todos los mensajes.')) return;
+
+    // Delete messages first, then conversation
+    await supabase.from('chat_messages').delete().eq('conversation_id', convId);
+    await supabase.from('chat_conversations').delete().eq('id', convId);
+
+    // Update local state
+    setConversations((prev) => prev.filter((c) => c.id !== convId));
+    if (selectedId === convId) {
+      setSelectedId(null);
+      setMessages([]);
+      setCustomerInfo(null);
+      setOrderInfo(null);
+    }
   };
 
   // ─── Send operator message (also to WhatsApp) ───
@@ -449,6 +467,15 @@ export default function Chatbot() {
                     }`}
                 >
                   <Info className="w-4 h-4" />
+                </button>
+
+                {/* Delete conversation */}
+                <button
+                  onClick={() => deleteConversation(selectedConv.id)}
+                  className="p-2 rounded-lg border border-slate-200 text-slate-400 hover:bg-red-50 hover:text-red-500 hover:border-red-200 transition-all"
+                  title="Eliminar conversación"
+                >
+                  <Trash2 className="w-4 h-4" />
                 </button>
               </div>
             </div>

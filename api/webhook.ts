@@ -342,12 +342,6 @@ async function processIncomingMessage(from: string, messageText: string): Promis
           });
         }
 
-        // Close the conversation
-        await supabaseUpdate('chat_conversations', conversation.id, {
-          status: 'completed',
-          ended_at: new Date().toISOString(),
-        });
-
         // Create order event
         await supabaseInsert('order_events', {
           order_id: order.id,
