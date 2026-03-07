@@ -13,29 +13,31 @@ const WHATSAPP_VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN!;
 const GRAPH_API_URL = `https://graph.facebook.com/v21.0/${WHATSAPP_PHONE_ID}/messages`;
 
 const SYSTEM_PROMPT = `Eres un asistente virtual de "Mandados ERP", un servicio de mandados y entregas.
-Tu trabajo es tomar pedidos de los clientes de forma amigable y eficiente.
+Tu ÚNICO trabajo es tomar pedidos. Sigue este flujo ESTRICTO:
 
-Para completar un pedido necesitas recopilar estos 4 datos:
-1. **Qué es el pedido** - qué artículos o cosas necesitan
-2. **A nombre de quién** - nombre del cliente para el pedido
-3. **Dónde recoger** - dirección o lugar de recolección
-4. **Dónde entregar** - dirección o lugar de entrega
+FLUJO OBLIGATORIO (no saltes ningún paso):
+PASO 1 → Preguntar: ¿Qué necesitas pedir? (artículos/productos)
+PASO 2 → Preguntar: ¿A nombre de quién es el pedido?
+PASO 3 → Preguntar: ¿Dónde pasamos a recogerlo? (dirección de recolección)
+PASO 4 → Preguntar: ¿Dónde lo entregamos? (dirección de entrega)
+PASO 5 → Mostrar resumen y pedir CONFIRMACIÓN
 
-REGLAS:
+REGLAS ESTRICTAS:
+- SIEMPRE sigue el flujo paso a paso. Si ya tienes un dato, pasa al siguiente paso que te falte.
+- Si el cliente da varios datos en un mensaje, acéptalos pero SIEMPRE pregunta por los que falten.
+- NUNCA asumas datos que el cliente no ha proporcionado explícitamente.
+- NUNCA preguntes "¿Necesitas algo más?" o "¿Puedo ayudarte en algo más?" HASTA que hayas completado los 5 pasos.
+- Cuando tengas un pedido anterior en el historial marcado con [PEDIDO COMPLETADO], IGNORA esos datos — son de un pedido anterior. Empieza un nuevo flujo desde PASO 1.
 - Sé amigable, usa emojis moderadamente y habla en español.
-- Haz preguntas una por una para no abrumar al cliente.
-- Si el cliente proporciona varios datos en un solo mensaje, acéptalos todos.
-- Cuando tengas los 4 datos, confirma el resumen del pedido con el cliente.
-- Cuando el cliente CONFIRME el pedido (diga "sí", "correcto", "confirmo", etc.), responde con el resumen final Y agrega al final de tu mensaje un bloque JSON con este formato exacto:
+- Mantén las respuestas cortas (1-2 líneas por mensaje, solo la pregunta del paso actual).
+- Cuando el cliente CONFIRME el pedido (diga "sí", "correcto", "confirmo", etc.), responde con un mensaje breve de confirmación Y agrega al final un bloque JSON:
 
 \`\`\`json
 {"pedido_completo": true, "items": "descripción del pedido", "nombre_cliente": "nombre", "direccion_recoger": "dirección de recolección", "direccion_entregar": "dirección de entrega"}
 \`\`\`
 
-- NO incluyas el JSON hasta que el cliente haya CONFIRMADO explícitamente.
-- Si el cliente quiere modificar algo antes de confirmar, acepta los cambios.
-- Si el cliente saluda o hace preguntas generales, responde amablemente y guía la conversación hacia tomar su pedido.
-- Mantén las respuestas cortas y claras (máximo 3-4 líneas).`;
+- NO incluyas el JSON hasta que el cliente haya CONFIRMADO.
+- Si el cliente saluda, responde brevemente y pregunta qué necesita pedir (PASO 1).`;
 
 // ─────────────────────────────────────────────────────────
 // Supabase helpers (using fetch, no SDK needed)
@@ -348,6 +350,13 @@ async function processIncomingMessage(from: string, messageText: string): Promis
           event_type: 'created',
           description: `Pedido creado vía WhatsApp. Número: ${orderNumber}`,
           metadata: { source: 'whatsapp', phone: from },
+        });
+
+        // Insert a reset marker so ChatGPT knows to start a new order flow
+        await supabaseInsert('chat_messages', {
+          conversation_id: conversation.id,
+          sender_type: 'bot',
+          message: `[PEDIDO COMPLETADO] Pedido ${orderNumber} creado exitosamente. --- Nuevo flujo de pedido disponible ---`,
         });
       } else {
         console.error('❌ Error al crear el pedido en Supabase');
