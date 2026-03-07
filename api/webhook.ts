@@ -297,11 +297,31 @@ function generateOrderNumber(): string {
 }
 
 // ─────────────────────────────────────────────────────────
-// Format phone for display (e.g. 521234567890 → +52 1234567890)
+// Clean phone for database (remove 521 or 52 prefix to keep 10 digits)
+// ─────────────────────────────────────────────────────────
+function cleanPhone(raw: string): string {
+  // Mexican WhatsApp numbers often come as 521 + 10 digits
+  if (raw.startsWith('521') && raw.length === 13) {
+    return raw.slice(3);
+  }
+  // Standard Mexican code 52 + 10 digits
+  if (raw.startsWith('52') && raw.length === 12) {
+    return raw.slice(2);
+  }
+  return raw;
+}
+
+// ─────────────────────────────────────────────────────────
+// Format phone for display (e.g. 1234567890 → +52 1234567890)
 // ─────────────────────────────────────────────────────────
 function formatPhone(raw: string): string {
+  // If it's already 10 digits, prepend +52
+  if (raw.length === 10) {
+    return `+52 ${raw}`;
+  }
+  // Fallback for raw WhatsApp IDs
   if (raw.startsWith('52') && raw.length >= 12) {
-    return `+52 ${raw.slice(2)}`;
+    return `+52 ${raw.slice(raw.startsWith('521') ? 3 : 2)}`;
   }
   return `+${raw}`;
 }
@@ -437,21 +457,23 @@ async function analyzeImageWithVision(imageDataUrl: string, caption?: string): P
 // Main message processing logic
 // ─────────────────────────────────────────────────────────
 async function processIncomingMessage(
-  from: string,
+  from: string, // The original WhatsApp ID for replying
   messageText: string,
   imageDataUrl?: string | null
 ): Promise<void> {
   try {
-    console.log(`\n${'='.repeat(50)}`);
-    console.log(`📱 Procesando mensaje de ${from}: "${messageText || '[imagen]'}"`);
+    const customerPhone = cleanPhone(from); // 10 digit number for DB
 
-    // 1. Find or create customer by phone
-    let customers = await supabaseGet('customers', `phone=eq.${encodeURIComponent(from)}&select=*`);
+    console.log(`\n${'='.repeat(50)}`);
+    console.log(`📱 Procesando mensaje de ${customerPhone} (raw: ${from}): "${messageText || '[imagen]'}"`);
+
+    // 1. Find or create customer by phone (using cleaned 10-digit number)
+    let customers = await supabaseGet('customers', `phone=eq.${encodeURIComponent(customerPhone)}&select=*`);
     let customer: any;
 
     if (customers.length === 0) {
       customer = await supabaseInsert('customers', {
-        phone: from,
+        phone: customerPhone,
         name: null,
       });
       if (!customer) throw new Error('Failed to create customer');
@@ -462,7 +484,7 @@ async function processIncomingMessage(
     }
 
     // 2. Find active conversation for this customer on WhatsApp
-    const channelLabel = `whatsapp:${formatPhone(from)}`;
+    const channelLabel = `whatsapp:${formatPhone(customerPhone)}`;
 
     let conversations = await supabaseGet(
       'chat_conversations',
@@ -559,7 +581,7 @@ async function processIncomingMessage(
         customer_id: customer.id,
         conversation_id: conversation.id,
         customer_name: orderData.nombre_cliente,
-        customer_phone: from,
+        customer_phone: customerPhone,
         order_type: 'mandadito',
         source: 'chatbot',
         status: 'pending',
@@ -574,11 +596,11 @@ async function processIncomingMessage(
         },
         pickup_contact: {
           name: orderData.nombre_cliente,
-          phone: from,
+          phone: customerPhone,
         },
         delivery_contact: {
           name: orderData.nombre_cliente,
-          phone: from,
+          phone: customerPhone,
         },
         items: [{ name: orderData.items, quantity: 1 }],
         special_instructions: `Pedido tomado por WhatsApp. Artículos: ${orderData.items}`,
@@ -606,7 +628,7 @@ async function processIncomingMessage(
           order_id: order.id,
           event_type: 'created',
           description: `Pedido creado vía WhatsApp. Número: ${orderNumber}`,
-          metadata: { source: 'whatsapp', phone: from },
+          metadata: { source: 'whatsapp', phone: customerPhone },
         });
 
         // Insert a reset marker so ChatGPT knows to start a new order flow
