@@ -193,6 +193,13 @@ export interface ChatConversation {
   status: 'active' | 'completed' | 'abandoned';
   started_at: string;
   ended_at?: string;
+  /** Joined / computed fields for chat UI */
+  customer_name?: string;
+  customer_phone?: string;
+  last_message?: string;
+  last_message_at?: string;
+  unread_count?: number;
+  bot_paused?: boolean;
 }
 
 export interface ChatMessage {

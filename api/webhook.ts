@@ -279,6 +279,12 @@ async function processIncomingMessage(from: string, messageText: string): Promis
       message: messageText,
     });
 
+    // 5b. Check if bot is paused (operator has taken over)
+    if (conversation.bot_paused === true) {
+      console.log('⏸️ Bot pausado — mensaje guardado, sin respuesta automática');
+      return; // Operator will respond manually from the panel
+    }
+
     // 6. Get ChatGPT response
     const gptResponse = await getChatGPTResponse(openaiMessages);
     console.log('🤖 ChatGPT:', gptResponse);

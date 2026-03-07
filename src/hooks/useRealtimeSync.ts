@@ -119,6 +119,28 @@ export function useRealtimeChat(conversationId: string, callback: () => void) {
   }, [conversationId, callback]);
 }
 
+export function useRealtimeConversations(callback: () => void) {
+  useEffect(() => {
+    const channel = supabase
+      .channel('conversations-list-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'chat_conversations' },
+        () => { callback(); }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'chat_messages' },
+        () => { callback(); }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [callback]);
+}
+
 export function useRealtimeDriverRoutes(callback: () => void) {
   useEffect(() => {
     const channel = supabase
