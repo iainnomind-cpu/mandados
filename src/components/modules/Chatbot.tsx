@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Send, MessageCircle, User, Search, Phone, Pause, Play,
   Clock, CheckCircle, AlertCircle, Filter, UserCheck, Info, X,
-  Package, MapPin, Trash2,
+  Package, MapPin, Trash2, PowerOff, Power
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { ChatMessage, ChatConversation } from '../../types';
@@ -49,6 +49,8 @@ export default function Chatbot() {
   const [customerInfo, setCustomerInfo] = useState<any>(null);
   const [orderInfo, setOrderInfo] = useState<any>(null);
   const [togglingBot, setTogglingBot] = useState(false);
+  const [globalBotPaused, setGlobalBotPaused] = useState(false);
+  const [togglingGlobalBot, setTogglingGlobalBot] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -79,14 +81,30 @@ export default function Chatbot() {
 
   useEffect(() => { loadConversations(); }, []);
 
-  // ─── Real-time conversation list ───
+  // ─── Load global settings ───
+  const loadGlobalSettings = async () => {
+    const { data } = await supabase
+      .from('system_settings')
+      .select('bot_paused_globally')
+      .eq('id', 1)
+      .single();
+    if (data) {
+      setGlobalBotPaused(data.bot_paused_globally);
+    }
+  };
+
+  useEffect(() => { loadGlobalSettings(); }, []);
+
   // ─── Real-time conversation list (direct subscription + polling) ───
   const loadConvRef = useRef(loadConversations);
   loadConvRef.current = loadConversations;
 
   useEffect(() => {
-    // Polling fallback for conversations (every 5s)
-    const interval = setInterval(() => { loadConvRef.current(); }, 5000);
+    // Polling fallback
+    const interval = setInterval(() => {
+      loadConvRef.current();
+      loadGlobalSettings();
+    }, 5000);
 
     // Supabase realtime channel
     const channel = supabase
@@ -96,6 +114,9 @@ export default function Chatbot() {
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages' }, () => {
         loadConvRef.current();
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'system_settings', filter: 'id=eq.1' }, (payload) => {
+        setGlobalBotPaused(payload.new.bot_paused_globally);
       })
       .subscribe();
 
@@ -190,7 +211,7 @@ export default function Chatbot() {
     setOrderInfo(order);
   };
 
-  // ─── Toggle bot pause ───
+  // ─── Toggle individual bot pause ───
   const toggleBotPause = async () => {
     if (!selectedId) return;
     setTogglingBot(true);
@@ -206,6 +227,20 @@ export default function Chatbot() {
       prev.map((c) => c.id === selectedId ? { ...c, bot_paused: newValue } : c)
     );
     setTogglingBot(false);
+  };
+
+  // ─── Toggle GLOBAL bot pause ───
+  const toggleGlobalBotPause = async () => {
+    setTogglingGlobalBot(true);
+    const newValue = !globalBotPaused;
+
+    await supabase
+      .from('system_settings')
+      .update({ bot_paused_globally: newValue })
+      .eq('id', 1);
+
+    setGlobalBotPaused(newValue);
+    setTogglingGlobalBot(false);
   };
 
   // ─── Delete conversation ───
@@ -304,9 +339,22 @@ export default function Chatbot() {
               </div>
               <h2 className="text-lg font-bold text-white">Chat / IA</h2>
             </div>
-            <span className="text-xs font-medium text-blue-100 bg-white/20 px-2.5 py-1 rounded-full">
-              {conversations.filter((c) => c.status === 'active').length} activas
-            </span>
+
+            <button
+              onClick={toggleGlobalBotPause}
+              disabled={togglingGlobalBot}
+              className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-full transition-all border shadow-sm ${globalBotPaused
+                  ? 'bg-red-500 hover:bg-red-600 text-white border-red-400 shadow-red-500/30'
+                  : 'bg-emerald-500 hover:bg-emerald-600 text-white border-emerald-400 shadow-emerald-500/30'
+                }`}
+              title={globalBotPaused ? 'Reanudar el bot en todo el sistema' : 'Pausar el bot en TODO el sistema'}
+            >
+              {globalBotPaused ? (
+                <><PowerOff className="w-3.5 h-3.5" /> Bot Apagado</>
+              ) : (
+                <><Power className="w-3.5 h-3.5" /> Bot Activo</>
+              )}
+            </button>
           </div>
 
           {/* Search */}
@@ -439,8 +487,8 @@ export default function Chatbot() {
               </div>
 
               <div className="flex items-center gap-2">
-                {/* Bot Pause/Resume */}
-                {selectedConv.status === 'active' && (
+                {/* Bot Pause/Resume (Individual) */}
+                {selectedConv.status === 'active' && !globalBotPaused && (
                   <button
                     onClick={toggleBotPause}
                     disabled={togglingBot}
@@ -480,12 +528,22 @@ export default function Chatbot() {
               </div>
             </div>
 
-            {/* Bot paused banner */}
-            {isBotPaused && (
+            {/* Global Bot paused banner */}
+            {globalBotPaused && (
+              <div className="px-6 py-2.5 bg-red-50 border-b border-red-200 flex items-center gap-2">
+                <PowerOff className="w-4 h-4 text-red-600" />
+                <span className="text-xs font-bold text-red-700">
+                  SISTEMA IA PAUSADO GLOBALMENTE · El bot no responderá a ningún mensaje nuevo automáticamente.
+                </span>
+              </div>
+            )}
+
+            {/* Individual Bot paused banner */}
+            {!globalBotPaused && isBotPaused && (
               <div className="px-6 py-2.5 bg-amber-50 border-b border-amber-200 flex items-center gap-2">
                 <UserCheck className="w-4 h-4 text-amber-600" />
                 <span className="text-xs font-medium text-amber-700">
-                  Bot pausado · Estás respondiendo manualmente. Los mensajes se enviarán directamente al cliente por WhatsApp.
+                  Bot pausado en esta conversación · Estás respondiendo manualmente.
                 </span>
               </div>
             )}
@@ -551,7 +609,7 @@ export default function Chatbot() {
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
                     onKeyDown={handleKeyPress}
-                    placeholder={isBotPaused ? 'Escribe tu respuesta al cliente...' : 'Escribe un mensaje como operador...'}
+                    placeholder={(isBotPaused || globalBotPaused) ? 'Escribe tu respuesta manual al cliente...' : 'Escribe un mensaje como operador...'}
                     className="flex-1 px-4 py-2.5 bg-slate-100 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                     disabled={loading}
                   />
@@ -643,7 +701,13 @@ export default function Chatbot() {
                   </span>
                 </div>
                 <div className="flex justify-between py-1.5 border-b border-slate-50">
-                  <span className="text-slate-400">Bot</span>
+                  <span className="text-slate-400">Bot Global</span>
+                  <span className={`font-medium ${globalBotPaused ? 'text-red-600' : 'text-emerald-600'}`}>
+                    {globalBotPaused ? 'Desactivado' : 'Activo'}
+                  </span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b border-slate-50">
+                  <span className="text-slate-400">Bot Local</span>
                   <span className={`font-medium ${isBotPaused ? 'text-amber-600' : 'text-emerald-600'}`}>
                     {isBotPaused ? '⏸ Pausado' : '▶ Activo'}
                   </span>

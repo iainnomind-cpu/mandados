@@ -557,9 +557,18 @@ async function processIncomingMessage(
       message: effectiveMessageText,
     });
 
-    // 7b. Check if bot is paused (operator has taken over)
+    // 7b. Check global bot pause
+    const settings = await supabaseGet('system_settings', 'id=eq.1&select=bot_paused_globally');
+    const isGloballyPaused = settings.length > 0 && settings[0].bot_paused_globally === true;
+
+    if (isGloballyPaused) {
+      console.log('🛑 Bot pausado GLOBALMENTE — mensaje guardado, sin respuesta automática');
+      return;
+    }
+
+    // 7c. Check individual conversation bot pause (operator has taken over)
     if (conversation.bot_paused === true) {
-      console.log('⏸️ Bot pausado — mensaje guardado, sin respuesta automática');
+      console.log('⏸️ Bot pausado en esta conversación — mensaje guardado, sin respuesta automática');
       return;
     }
 
