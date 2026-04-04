@@ -36,7 +36,7 @@ function timeAgo(dateStr: string): string {
   return `${days}d`;
 }
 
-export default function Chatbot() {
+export default function Chatbot({ initialConversationId }: { initialConversationId?: string } = {}) {
   // ─── State ───
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -90,6 +90,13 @@ export default function Chatbot() {
   }, [selectedId]);
 
   useEffect(() => { loadConversations(); }, []);
+
+  // ─── Jump to conversation from escalation notification ───
+  useEffect(() => {
+    if (initialConversationId) {
+      setSelectedId(initialConversationId);
+    }
+  }, [initialConversationId]);
 
   // ─── Load global settings ───
   const loadGlobalSettings = async () => {

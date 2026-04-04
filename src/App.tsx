@@ -14,12 +14,15 @@ import GlobalNotifications from './components/GlobalNotifications';
 function AppContent() {
   const { user, loading } = useAuth();
   const [currentModule, setCurrentModule] = useState('dashboard');
+  const [targetConversationId, setTargetConversationId] = useState<string | undefined>(undefined);
   const { setOnNavigateToChat } = useNotifications();
 
-  // Register navigation callback for escalation toasts
-  const navigateToChat = useCallback((_conversationId?: string) => {
+  // Register navigation callback for escalation toasts/notifications
+  const navigateToChat = useCallback((conversationId?: string) => {
     setCurrentModule('chatbot');
-    // The conversation selection happens in the Chatbot component via realtime
+    setTargetConversationId(conversationId);
+    // Clear the target after a short delay so re-renders don't keep re-selecting
+    setTimeout(() => setTargetConversationId(undefined), 1500);
   }, []);
 
   useEffect(() => {
@@ -43,7 +46,7 @@ function AppContent() {
       case 'dashboard':
         return <Dashboard />;
       case 'chatbot':
-        return <Chatbot />;
+        return <Chatbot initialConversationId={targetConversationId} />;
       case 'orders':
         return <OrderManagement />;
       case 'dispatch':
