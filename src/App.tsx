@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { NotificationProvider } from './contexts/NotificationContext';
+import { NotificationProvider, useNotifications } from './contexts/NotificationContext';
 import Auth from './components/Auth';
 import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
@@ -14,6 +14,17 @@ import GlobalNotifications from './components/GlobalNotifications';
 function AppContent() {
   const { user, loading } = useAuth();
   const [currentModule, setCurrentModule] = useState('dashboard');
+  const { setOnNavigateToChat } = useNotifications();
+
+  // Register navigation callback for escalation toasts
+  const navigateToChat = useCallback((_conversationId?: string) => {
+    setCurrentModule('chatbot');
+    // The conversation selection happens in the Chatbot component via realtime
+  }, []);
+
+  useEffect(() => {
+    setOnNavigateToChat(navigateToChat);
+  }, [navigateToChat, setOnNavigateToChat]);
 
   if (loading) {
     return (

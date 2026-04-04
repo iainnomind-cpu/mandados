@@ -1,23 +1,29 @@
 import { useEffect, useState } from 'react';
 import {
-    MessageCircle, Package, X, Bell, BellOff, Trash2,
+    MessageCircle, Package, X, Bell, BellOff, Trash2, AlertTriangle, ArrowRight,
 } from 'lucide-react';
 import { useGlobalNotifications, AppNotification } from '../hooks/useGlobalNotifications';
 
 function NotificationItem({ n }: { n: AppNotification }) {
     const isMessage = n.type === 'new_message';
+    const isEscalation = n.type === 'escalation';
     const timeStr = new Date(n.timestamp).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
 
     return (
-        <div className={`flex items-start gap-3 px-4 py-3 border-b border-slate-100 transition-colors ${n.read ? 'opacity-60' : 'bg-white'
-            }`}>
-            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isMessage ? 'bg-blue-100 text-blue-600' : 'bg-emerald-100 text-emerald-600'
+        <div className={`flex items-start gap-3 px-4 py-3 border-b transition-colors ${n.read ? 'opacity-60' : 'bg-white'
+            } ${isEscalation ? 'border-red-100 bg-red-50/50' : 'border-slate-100'}`}>
+            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isEscalation
+                ? 'bg-red-500 text-white animate-pulse'
+                : isMessage ? 'bg-blue-100 text-blue-600' : 'bg-emerald-100 text-emerald-600'
                 }`}>
-                {isMessage ? <MessageCircle className="w-4 h-4" /> : <Package className="w-4 h-4" />}
+                {isEscalation
+                    ? <AlertTriangle className="w-4 h-4" />
+                    : isMessage ? <MessageCircle className="w-4 h-4" /> : <Package className="w-4 h-4" />
+                }
             </div>
             <div className="flex-1 min-w-0">
-                <p className="text-xs font-bold text-slate-700">{n.title}</p>
-                <p className="text-xs text-slate-500 line-clamp-2">{n.body}</p>
+                <p className={`text-xs font-bold ${isEscalation ? 'text-red-800' : 'text-slate-700'}`}>{n.title}</p>
+                <p className={`text-xs line-clamp-2 ${isEscalation ? 'text-red-600' : 'text-slate-500'}`}>{n.body}</p>
             </div>
             <span className="text-[10px] text-slate-400 shrink-0">{timeStr}</span>
         </div>
@@ -101,43 +107,74 @@ export function NotificationBell() {
 
 // ─── Floating toast (lives at app root) ───
 export default function GlobalNotifications() {
-    const { latestToast, dismissToast } = useGlobalNotifications();
+    const { latestToast, dismissToast, onNavigateToChat } = useGlobalNotifications();
 
-    // Auto-dismiss toast after 4 seconds
+    const isEscalation = latestToast?.type === 'escalation';
+
+    // Auto-dismiss toast (longer for escalations)
     useEffect(() => {
         if (!latestToast) return;
-        const timer = setTimeout(dismissToast, 4000);
+        const timer = setTimeout(dismissToast, isEscalation ? 15000 : 4000);
         return () => clearTimeout(timer);
-    }, [latestToast, dismissToast]);
+    }, [latestToast, dismissToast, isEscalation]);
 
     if (!latestToast) return null;
 
+    const handleGoToChat = () => {
+        if (onNavigateToChat) {
+            onNavigateToChat(latestToast.conversationId);
+        }
+        dismissToast();
+    };
+
     return (
         <>
-            <div className="fixed top-4 right-4 z-[9999]" style={{ animation: 'notif-slide-in 0.3s ease-out' }}>
-                <div className={`flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl border backdrop-blur-sm max-w-md ${latestToast.type === 'new_message'
-                    ? 'bg-blue-50/95 border-blue-200'
-                    : 'bg-emerald-50/95 border-emerald-200'
-                    }`}>
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${latestToast.type === 'new_message'
-                        ? 'bg-blue-500 text-white'
-                        : 'bg-emerald-500 text-white'
+            <div className="fixed top-4 right-4 z-[9999]" style={{ animation: isEscalation ? 'notif-shake 0.5s ease-out' : 'notif-slide-in 0.3s ease-out' }}>
+                <div className={`flex flex-col rounded-xl shadow-2xl border backdrop-blur-sm max-w-md overflow-hidden ${
+                    isEscalation
+                        ? 'bg-red-50/95 border-red-300 shadow-red-500/20'
+                        : latestToast.type === 'new_message'
+                            ? 'bg-blue-50/95 border-blue-200'
+                            : 'bg-emerald-50/95 border-emerald-200'
+                }`}>
+                    <div className="flex items-center gap-3 px-4 py-3">
+                        <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
+                            isEscalation
+                                ? 'bg-red-500 text-white animate-pulse'
+                                : latestToast.type === 'new_message'
+                                    ? 'bg-blue-500 text-white'
+                                    : 'bg-emerald-500 text-white'
                         }`}>
-                        {latestToast.type === 'new_message'
-                            ? <MessageCircle className="w-5 h-5" />
-                            : <Package className="w-5 h-5" />
-                        }
+                            {isEscalation
+                                ? <AlertTriangle className="w-5 h-5" />
+                                : latestToast.type === 'new_message'
+                                    ? <MessageCircle className="w-5 h-5" />
+                                    : <Package className="w-5 h-5" />
+                            }
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className={`text-sm font-bold ${isEscalation ? 'text-red-800' : 'text-slate-800'}`}>{latestToast.title}</p>
+                            <p className={`text-xs line-clamp-2 ${isEscalation ? 'text-red-600' : 'text-slate-500'}`}>{latestToast.body}</p>
+                        </div>
+                        <button
+                            onClick={dismissToast}
+                            className="p-1 text-slate-400 hover:text-slate-600 transition-colors"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
                     </div>
-                    <div className="flex-1 min-w-0">
-                        <p className="text-sm font-bold text-slate-800">{latestToast.title}</p>
-                        <p className="text-xs text-slate-500 line-clamp-2">{latestToast.body}</p>
-                    </div>
-                    <button
-                        onClick={dismissToast}
-                        className="p-1 text-slate-400 hover:text-slate-600 transition-colors"
-                    >
-                        <X className="w-4 h-4" />
-                    </button>
+
+                    {/* Go to chat button for escalations */}
+                    {isEscalation && (
+                        <button
+                            onClick={handleGoToChat}
+                            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-red-500 hover:bg-red-600 text-white text-xs font-bold transition-colors"
+                        >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                            Ir al chat ahora
+                            <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                    )}
                 </div>
             </div>
 
@@ -145,6 +182,13 @@ export default function GlobalNotifications() {
         @keyframes notif-slide-in {
           from { opacity: 0; transform: translateX(100px); }
           to { opacity: 1; transform: translateX(0); }
+        }
+        @keyframes notif-shake {
+          0% { opacity: 0; transform: translateX(100px); }
+          40% { opacity: 1; transform: translateX(-10px); }
+          60% { transform: translateX(6px); }
+          80% { transform: translateX(-3px); }
+          100% { transform: translateX(0); }
         }
       `}</style>
         </>
