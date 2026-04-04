@@ -4,21 +4,31 @@ import {
 } from 'lucide-react';
 import { useGlobalNotifications, AppNotification } from '../hooks/useGlobalNotifications';
 
+// Helper: dispatch navigation event (works from anywhere, no React context)
+function navigateToChatConversation(conversationId?: string) {
+    window.dispatchEvent(new CustomEvent('erp:navigate-to-chat', { detail: conversationId }));
+}
+
 // ─── Notification item in dropdown ───
 function NotificationItem({
     n,
-    onGoToChat,
+    onClose,
 }: {
     n: AppNotification;
-    onGoToChat?: (conversationId?: string) => void;
+    onClose?: () => void;
 }) {
     const isMessage = n.type === 'new_message';
     const isEscalation = n.type === 'escalation';
     const timeStr = new Date(n.timestamp).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
 
+    const handleGoToChat = () => {
+        navigateToChatConversation(n.conversationId);
+        onClose?.();
+    };
+
     return (
-        <div className={`flex flex-col border-b transition-colors ${n.read ? 'opacity-60' : ''
-            } ${isEscalation ? 'border-red-100 bg-red-50/60' : 'border-slate-100 bg-white'}`}>
+        <div className={`flex flex-col border-b transition-colors ${isEscalation ? 'border-red-100 bg-red-50/60' : 'border-slate-100 bg-white'
+            } ${n.read ? 'opacity-60' : ''}`}>
             <div className="flex items-start gap-3 px-4 py-3">
                 <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isEscalation
                     ? 'bg-red-500 text-white'
@@ -37,9 +47,9 @@ function NotificationItem({
             </div>
 
             {/* Go to chat button inside the dropdown for escalations */}
-            {isEscalation && onGoToChat && (
+            {isEscalation && (
                 <button
-                    onClick={() => onGoToChat(n.conversationId)}
+                    onClick={handleGoToChat}
                     className="mx-4 mb-3 flex items-center justify-center gap-1.5 py-1.5 bg-red-500 hover:bg-red-600 text-white text-[11px] font-bold rounded-lg transition-colors"
                 >
                     <MessageCircle className="w-3 h-3" />
@@ -58,16 +68,13 @@ export function NotificationBell() {
         unreadCount,
         clearNotifications,
         markAllRead,
-        onNavigateToChat,
     } = useGlobalNotifications();
 
     const [showPanel, setShowPanel] = useState(false);
-
-    // Escalation unread count (for red badge color intensity)
     const escalationCount = notifications.filter(n => n.type === 'escalation' && !n.read).length;
 
     const handleGoToChat = (conversationId?: string) => {
-        if (onNavigateToChat) onNavigateToChat(conversationId);
+        navigateToChatConversation(conversationId);
         setShowPanel(false);
     };
 
@@ -134,7 +141,7 @@ export function NotificationBell() {
                                     <NotificationItem
                                         key={n.id}
                                         n={n}
-                                        onGoToChat={n.type === 'escalation' ? handleGoToChat : undefined}
+                                        onClose={() => setShowPanel(false)}
                                     />
                                 ))
                             )}
@@ -148,11 +155,9 @@ export function NotificationBell() {
 
 // ─── Floating toast — positioned bottom-center to avoid being cut off ───
 export default function GlobalNotifications() {
-    const { latestToast, dismissToast, onNavigateToChat } = useGlobalNotifications();
-
+    const { latestToast, dismissToast } = useGlobalNotifications();
     const isEscalation = latestToast?.type === 'escalation';
 
-    // Auto-dismiss (longer for escalations)
     useEffect(() => {
         if (!latestToast) return;
         const timer = setTimeout(dismissToast, isEscalation ? 15000 : 4000);
@@ -162,7 +167,8 @@ export default function GlobalNotifications() {
     if (!latestToast) return null;
 
     const handleGoToChat = () => {
-        if (onNavigateToChat) onNavigateToChat(latestToast.conversationId);
+        // Use custom event — works regardless of React context timing
+        navigateToChatConversation(latestToast.conversationId);
         dismissToast();
     };
 

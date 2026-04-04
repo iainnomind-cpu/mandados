@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { NotificationProvider, useNotifications } from './contexts/NotificationContext';
+import { NotificationProvider } from './contexts/NotificationContext';
 import Auth from './components/Auth';
 import Layout from './components/Layout';
 import Dashboard from './components/Dashboard';
@@ -15,19 +15,18 @@ function AppContent() {
   const { user, loading } = useAuth();
   const [currentModule, setCurrentModule] = useState('dashboard');
   const [targetConversationId, setTargetConversationId] = useState<string | undefined>(undefined);
-  const { setOnNavigateToChat } = useNotifications();
 
-  // Register navigation callback for escalation toasts/notifications
-  const navigateToChat = useCallback((conversationId?: string) => {
-    setCurrentModule('chatbot');
-    setTargetConversationId(conversationId);
-    // Clear the target after a short delay so re-renders don't keep re-selecting
-    setTimeout(() => setTargetConversationId(undefined), 1500);
-  }, []);
-
+  // Listen for navigation events dispatched by GlobalNotifications
   useEffect(() => {
-    setOnNavigateToChat(navigateToChat);
-  }, [navigateToChat, setOnNavigateToChat]);
+    const handler = (e: Event) => {
+      const convId = (e as CustomEvent<string | undefined>).detail;
+      setCurrentModule('chatbot');
+      setTargetConversationId(convId);
+      setTimeout(() => setTargetConversationId(undefined), 2000);
+    };
+    window.addEventListener('erp:navigate-to-chat', handler);
+    return () => window.removeEventListener('erp:navigate-to-chat', handler);
+  }, []);
 
   if (loading) {
     return (
