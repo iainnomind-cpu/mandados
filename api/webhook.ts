@@ -693,13 +693,79 @@ async function processIncomingMessage(
       message: effectiveMessageText,
     });
 
-    // 7b. Check global bot pause
-    const settings = await supabaseGet('system_settings', 'id=eq.1&select=bot_paused_globally');
+    // 7b. Check global bot pause + business hours
+    const settings = await supabaseGet('system_settings', 'id=eq.1&select=bot_paused_globally,business_hours,outside_hours_message');
     const isGloballyPaused = settings.length > 0 && settings[0].bot_paused_globally === true;
 
     if (isGloballyPaused) {
       console.log('🛑 Bot pausado GLOBALMENTE — mensaje guardado, sin respuesta automática');
       return;
+    }
+
+    // 7b2. Check business hours
+    if (settings.length > 0 && settings[0].business_hours) {
+      const bh = settings[0].business_hours;
+      if (bh.enabled === true && bh.schedule) {
+        const tz = bh.timezone || 'America/Mexico_City';
+        const nowInTz = new Date(new Date().toLocaleString('en-US', { timeZone: tz }));
+        const jsDay = nowInTz.getDay(); // 0=Sun,1=Mon,...
+        const dayMap: Record<number, string> = {
+          0: 'sunday', 1: 'monday', 2: 'tuesday', 3: 'wednesday',
+          4: 'thursday', 5: 'friday', 6: 'saturday',
+        };
+        const todayKey = dayMap[jsDay];
+        const todaySchedule = bh.schedule[todayKey];
+
+        let isOutsideHours = false;
+
+        if (!todaySchedule || todaySchedule.open === false) {
+          isOutsideHours = true;
+        } else {
+          const currentMinutes = nowInTz.getHours() * 60 + nowInTz.getMinutes();
+          const [startH, startM] = (todaySchedule.start || '09:00').split(':').map(Number);
+          const [endH, endM] = (todaySchedule.end || '20:00').split(':').map(Number);
+          const startMinutes = startH * 60 + startM;
+          const endMinutes = endH * 60 + endM;
+          if (currentMinutes < startMinutes || currentMinutes >= endMinutes) {
+            isOutsideHours = true;
+          }
+        }
+
+        if (isOutsideHours) {
+          console.log('🕐 Fuera de horario de atención — enviando mensaje automático');
+
+          // Build formatted schedule string
+          const dayLabels: Record<string, string> = {
+            monday: 'Lunes', tuesday: 'Martes', wednesday: 'Miércoles',
+            thursday: 'Jueves', friday: 'Viernes', saturday: 'Sábado', sunday: 'Domingo',
+          };
+          const dayOrder = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+          let scheduleLines: string[] = [];
+          for (const day of dayOrder) {
+            const s = bh.schedule[day];
+            if (s && s.open) {
+              scheduleLines.push(`  📍 ${dayLabels[day]}: ${s.start} - ${s.end}`);
+            } else {
+              scheduleLines.push(`  🔴 ${dayLabels[day]}: Cerrado`);
+            }
+          }
+
+          const customMsg = settings[0].outside_hours_message ||
+            '🕐 Gracias por escribirnos. En este momento nos encontramos fuera de nuestro horario de atención. ¡Te atenderemos con gusto en cuanto estemos de vuelta!';
+          const fullMessage = `${customMsg}\n\n📋 *Nuestro horario de atención:*\n${scheduleLines.join('\n')}`;
+
+          // Save the auto-reply in DB
+          await supabaseInsert('chat_messages', {
+            conversation_id: conversation.id,
+            sender_type: 'bot',
+            message: fullMessage,
+          });
+
+          await sendWhatsAppMessage(from, fullMessage);
+          console.log('✅ Mensaje de fuera de horario enviado a', from);
+          return;
+        }
+      }
     }
 
     // 7c. Check individual conversation bot pause (operator has taken over)
