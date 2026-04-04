@@ -596,29 +596,50 @@ async function processIncomingMessage(
       console.log('👤 Cliente existente:', customer.id, customer.name);
     }
 
-    // 2. Find active conversation for this customer on WhatsApp
+    // 2. Find conversation for this customer on WhatsApp
+    //    Priority: active > most recent completed/abandoned (reactivate) > create new
     const channelLabel = `whatsapp:${formatPhone(customerPhone)}`;
+    let conversation: any;
 
+    // First, look for an active conversation
     let conversations = await supabaseGet(
       'chat_conversations',
       `customer_id=eq.${customer.id}&status=eq.active&select=*&order=started_at.desc&limit=1`
     );
-    let conversation: any;
 
-    if (conversations.length === 0) {
-      conversation = await supabaseInsert('chat_conversations', {
-        customer_id: customer.id,
-        channel: channelLabel,
-        status: 'active',
-      });
-      if (!conversation) throw new Error('Failed to create conversation');
-      console.log('💬 Nueva conversación creada:', conversation.id);
-    } else {
+    if (conversations.length > 0) {
       conversation = conversations[0];
       if (conversation.channel !== channelLabel) {
         await supabaseUpdate('chat_conversations', conversation.id, { channel: channelLabel });
       }
-      console.log('💬 Conversación existente:', conversation.id);
+      console.log('💬 Conversación activa existente:', conversation.id);
+    } else {
+      // No active conversation — look for the most recent completed/abandoned one to reactivate
+      const recentConvs = await supabaseGet(
+        'chat_conversations',
+        `customer_id=eq.${customer.id}&select=*&order=started_at.desc&limit=1`
+      );
+
+      if (recentConvs.length > 0) {
+        // Reactivate the most recent conversation
+        conversation = recentConvs[0];
+        await supabaseUpdate('chat_conversations', conversation.id, {
+          status: 'active',
+          ended_at: null,
+          channel: channelLabel,
+        });
+        conversation.status = 'active';
+        console.log('💬 Conversación reactivada:', conversation.id, '(era', recentConvs[0].status + ')');
+      } else {
+        // No conversation at all — create a new one
+        conversation = await supabaseInsert('chat_conversations', {
+          customer_id: customer.id,
+          channel: channelLabel,
+          status: 'active',
+        });
+        if (!conversation) throw new Error('Failed to create conversation');
+        console.log('💬 Nueva conversación creada:', conversation.id);
+      }
     }
 
     // 3. If image, analyze it with Vision first
