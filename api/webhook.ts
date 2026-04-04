@@ -86,7 +86,31 @@ PROHIBIDO:
 - NUNCA repitas el resumen después de que el cliente ya confirmó. Si dice "sí", genera el JSON de inmediato.
 - NUNCA pidas confirmar los productos por separado. Solo UNA confirmación final.
 - NO incluyas el JSON hasta que el cliente haya CONFIRMADO.
-- NUNCA omitas el bloque JSON cuando el cliente confirma. Es OBLIGATORIO.`;
+- NUNCA omitas el bloque JSON cuando el cliente confirma. Es OBLIGATORIO.
+
+ESCALAMIENTO A HUMANO:
+Si el mensaje del cliente NO es un pedido nuevo sino una situación especial que requiere atención humana, debes ESCALAR. Situaciones que requieren escalamiento:
+- Problemas con un pedido ya entregado (producto dañado, equivocado, incompleto)
+- Problemas de pago (doble cobro, depósito vs efectivo, reembolso)
+- Quejas o reclamos sobre el servicio
+- Preguntas sobre precios, tarifas, o políticas que no puedes responder
+- Solicitudes especiales que salen de tu capacidad (cotizaciones, contratos, etc.)
+- El cliente pide hablar con una persona real
+- Cualquier situación que NO sea simplemente tomar un pedido nuevo
+
+Cuando detectes que se necesita escalamiento:
+1. Responde al cliente con empatía y brevedad, diciendo que un agente humano lo atenderá en breve.
+2. OBLIGATORIAMENTE agrega al final este bloque JSON:
+
+\`\`\`json
+{"escalamiento": true, "razon": "descripción breve del problema", "categoria": "pago|queja|producto_danado|solicitud_especial|otro"}
+\`\`\`
+
+Ejemplos:
+- Cliente: "el repartidor me cobró pero mi clienta ya depositó" → Escalar con categoría "pago"
+- Cliente: "el pedido llegó dañado" → Escalar con categoría "producto_danado"
+- Cliente: "quiero hablar con alguien" → Escalar con categoría "otro"
+- Cliente: "cuánto cobran por envío a Colima?" → Escalar con categoría "solicitud_especial"`;
 
   if (isReturning) {
     return `Eres un asistente virtual de "Mandados ERP", un servicio de mandados y entregas en Ciudad Guzmán, Jalisco.
@@ -298,6 +322,30 @@ function extractOrderData(response: string): OrderData | null {
     }
   } catch (e) {
     console.error('⚠️ Error parsing order JSON:', e);
+  }
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────
+// Escalation extraction from ChatGPT response
+// ─────────────────────────────────────────────────────────
+interface EscalationData {
+  escalamiento: boolean;
+  razon: string;
+  categoria: 'pago' | 'queja' | 'producto_danado' | 'solicitud_especial' | 'otro';
+}
+
+function extractEscalationData(response: string): EscalationData | null {
+  const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/);
+  if (!jsonMatch) return null;
+
+  try {
+    const data = JSON.parse(jsonMatch[1]);
+    if (data.escalamiento === true) {
+      return data as EscalationData;
+    }
+  } catch (e) {
+    console.error('⚠️ Error parsing escalation JSON:', e);
   }
   return null;
 }
@@ -645,7 +693,30 @@ async function processIncomingMessage(
 
     // 9. Check if order is complete
     const orderData = extractOrderData(gptResponse);
+    const escalationData = extractEscalationData(gptResponse);
     let orderNumber: string | null = null;
+
+    // 9a. Handle escalation to human
+    if (escalationData) {
+      console.log('🚨 ESCALAMIENTO detectado:', JSON.stringify(escalationData));
+
+      // Pause the bot on this conversation
+      await supabaseUpdate('chat_conversations', conversation.id, {
+        bot_paused: true,
+        escalation_reason: escalationData.razon,
+        escalation_category: escalationData.categoria,
+        escalated_at: new Date().toISOString(),
+      });
+
+      // Save the escalation marker message
+      await supabaseInsert('chat_messages', {
+        conversation_id: conversation.id,
+        sender_type: 'bot',
+        message: `[🚨 ESCALAMIENTO] Razón: ${escalationData.razon} | Categoría: ${escalationData.categoria} — Bot pausado, esperando atención humana.`,
+      });
+
+      console.log('⏸️ Bot pausado automáticamente — esperando intervención humana');
+    }
 
     if (orderData) {
       console.log('📦 Datos del pedido extraídos:', JSON.stringify(orderData));
@@ -730,6 +801,9 @@ async function processIncomingMessage(
     let finalMessage = cleanResponse;
     if (orderData && orderNumber) {
       finalMessage += `\n\n📋 *Número de pedido:* ${orderNumber}`;
+    }
+    if (escalationData) {
+      finalMessage += `\n\n👨‍💼 _Un agente te contactará en breve._`;
     }
 
     await sendWhatsAppMessage(from, finalMessage);

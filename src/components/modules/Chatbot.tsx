@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Send, MessageCircle, User, Search, Phone, Pause, Play,
   Clock, CheckCircle, AlertCircle, Filter, UserCheck, Info, X,
-  Package, MapPin, Trash2, PowerOff, Power
+  Package, MapPin, Trash2, PowerOff, Power, AlertTriangle, ShieldCheck
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { ChatMessage, ChatConversation } from '../../types';
@@ -57,6 +57,16 @@ export default function Chatbot() {
   // ─── Derived ───
   const selectedConv = conversations.find((c) => c.id === selectedId) || null;
   const isBotPaused = selectedConv?.bot_paused ?? false;
+  const isEscalated = !!(selectedConv?.escalation_reason);
+
+  // ─── Escalation category labels ───
+  const ESCALATION_LABELS: Record<string, { label: string; color: string; emoji: string }> = {
+    pago: { label: 'Problema de pago', color: 'text-amber-800 bg-amber-100 border-amber-300', emoji: '💳' },
+    queja: { label: 'Queja / Reclamo', color: 'text-red-800 bg-red-100 border-red-300', emoji: '😤' },
+    producto_danado: { label: 'Producto dañado', color: 'text-orange-800 bg-orange-100 border-orange-300', emoji: '📦' },
+    solicitud_especial: { label: 'Solicitud especial', color: 'text-purple-800 bg-purple-100 border-purple-300', emoji: '✨' },
+    otro: { label: 'Otro', color: 'text-slate-800 bg-slate-100 border-slate-300', emoji: '❓' },
+  };
 
   // ─── Load conversations ───
   const loadConversations = useCallback(async () => {
@@ -241,6 +251,42 @@ export default function Chatbot() {
 
     setGlobalBotPaused(newValue);
     setTogglingGlobalBot(false);
+  };
+
+  // ─── Resolve escalation ───
+  const resolveEscalation = async () => {
+    if (!selectedId) return;
+
+    await supabase
+      .from('chat_conversations')
+      .update({
+        escalation_reason: null,
+        escalation_category: null,
+        escalated_at: null,
+        bot_paused: false,
+      })
+      .eq('id', selectedId);
+
+    // Update local state
+    setConversations((prev) =>
+      prev.map((c) =>
+        c.id === selectedId
+          ? { ...c, escalation_reason: undefined, escalation_category: undefined, escalated_at: undefined, bot_paused: false }
+          : c
+      )
+    );
+
+    // Insert a marker message
+    await supabase
+      .from('chat_messages')
+      .insert([{
+        conversation_id: selectedId,
+        sender_type: 'operator',
+        message: '[✅ ESCALAMIENTO RESUELTO] — Bot reactivado.',
+        metadata: {},
+      }]);
+
+    loadMessages(selectedId);
   };
 
   // ─── Delete conversation ───
@@ -438,10 +484,18 @@ export default function Chatbot() {
                       </div>
 
                       <div className="flex items-center justify-between mt-1.5">
-                        <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border ${statusCfg.bg} ${statusCfg.color}`}>
-                          {conv.status === 'active' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
-                          {statusCfg.label}
-                        </span>
+                        <div className="flex items-center gap-1">
+                          <span className={`inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full border ${statusCfg.bg} ${statusCfg.color}`}>
+                            {conv.status === 'active' && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />}
+                            {statusCfg.label}
+                          </span>
+
+                          {conv.escalation_reason && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-200 animate-pulse">
+                              <AlertTriangle className="w-2.5 h-2.5" /> 🚨
+                            </span>
+                          )}
+                        </div>
 
                         {conv.bot_paused && (
                           <span className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
@@ -539,7 +593,7 @@ export default function Chatbot() {
             )}
 
             {/* Individual Bot paused banner */}
-            {!globalBotPaused && isBotPaused && (
+            {!globalBotPaused && isBotPaused && !isEscalated && (
               <div className="px-6 py-2.5 bg-amber-50 border-b border-amber-200 flex items-center gap-2">
                 <UserCheck className="w-4 h-4 text-amber-600" />
                 <span className="text-xs font-medium text-amber-700">
@@ -547,6 +601,47 @@ export default function Chatbot() {
                 </span>
               </div>
             )}
+
+            {/* 🚨 Escalation banner */}
+            {isEscalated && (() => {
+              const cat = selectedConv?.escalation_category || 'otro';
+              const catInfo = ESCALATION_LABELS[cat] || ESCALATION_LABELS.otro;
+              return (
+                <div className="px-6 py-3 bg-gradient-to-r from-red-50 to-orange-50 border-b-2 border-red-300">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center animate-pulse">
+                        <AlertTriangle className="w-4 h-4 text-red-600" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-red-800">🚨 REQUIERE ATENCIÓN HUMANA</span>
+                          <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full border ${catInfo.color}`}>
+                            {catInfo.emoji} {catInfo.label}
+                          </span>
+                        </div>
+                        <p className="text-xs text-red-700 mt-0.5">
+                          {selectedConv?.escalation_reason}
+                        </p>
+                        {selectedConv?.escalated_at && (
+                          <p className="text-[10px] text-red-500 mt-0.5">
+                            Escalado: {new Date(selectedConv.escalated_at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={resolveEscalation}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold rounded-lg shadow-sm transition-all"
+                      title="Marcar como resuelto y reanudar el bot"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      Resuelto
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Messages */}
             <div
