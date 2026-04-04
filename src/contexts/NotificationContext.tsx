@@ -186,30 +186,44 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
             .on(
                 'postgres_changes',
                 {
-                    event: 'UPDATE',
+                    // Listen for the escalation marker message the webhook inserts.
+                    // Using INSERT (not UPDATE) because Supabase Realtime sends full
+                    // row data on INSERT without needing REPLICA IDENTITY FULL.
+                    event: 'INSERT',
                     schema: 'public',
-                    table: 'chat_conversations',
+                    table: 'chat_messages',
+                    filter: 'sender_type=eq.bot',
                 },
                 (payload) => {
                     if (!readyRef.current) return;
-                    const conv = payload.new as any;
-                    const oldConv = payload.old as any;
-                    // Only fire if escalation was just set (wasn't there before)
-                    if (conv.escalation_reason && !oldConv.escalation_reason) {
-                        const catLabels: Record<string, string> = {
-                            pago: '💳 Problema de pago',
-                            queja: '😤 Queja / Reclamo',
-                            producto_danado: '📦 Producto dañado',
-                            solicitud_especial: '✨ Solicitud especial',
-                            otro: '❓ Requiere atención',
-                        };
-                        addNotificationRef.current({
-                            type: 'escalation',
-                            title: '🚨 ¡Escalamiento urgente!',
-                            body: `${catLabels[conv.escalation_category] || 'Atención requerida'}: ${conv.escalation_reason}`,
-                            conversationId: conv.id,
-                        });
-                    }
+                    const msg = payload.new as any;
+                    const text: string = msg.message || '';
+
+                    // Only fire for escalation marker messages
+                    // Use includes('ESCALAMIENTO') for robustness (emoji byte encoding)
+                    if (!text.includes('ESCALAMIENTO') || !text.includes('Razón:')) return;
+
+                    // Parse reason and category from the marker text:
+                    // "[🚨 ESCALAMIENTO] Razón: X | Categoría: Y — Bot pausado..."
+                    const razonMatch = text.match(/Raz[oó]n:\s*([^|]+)/);
+                    const catMatch = text.match(/Categor[íi]a:\s*(\S+)/);
+                    const razon = razonMatch ? razonMatch[1].trim() : 'Atención requerida';
+                    const categoria = catMatch ? catMatch[1].replace(/[—–\s].*$/, '').trim() : 'otro';
+
+                    const catLabels: Record<string, string> = {
+                        pago: '💳 Problema de pago',
+                        queja: '😤 Queja / Reclamo',
+                        producto_danado: '📦 Producto dañado',
+                        solicitud_especial: '✨ Solicitud especial',
+                        otro: '❓ Requiere atención',
+                    };
+
+                    addNotificationRef.current({
+                        type: 'escalation',
+                        title: '🚨 ¡Requiere atención humana!',
+                        body: `${catLabels[categoria] || '❓ Requiere atención'}: ${razon}`,
+                        conversationId: msg.conversation_id,
+                    });
                 }
             )
             .subscribe();
