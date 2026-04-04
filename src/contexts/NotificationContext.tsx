@@ -146,26 +146,63 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
             readyRef.current = true;
         }, 3000);
 
-        const channel = supabase
-            .channel('global-notifications')
+        // ── Channel 1: All chat_messages (customer + bot escalation) ──
+        // NOTE: Supabase Realtime does NOT allow two listeners with
+        // different column filters on the SAME table in the SAME channel.
+        // We use ONE listener without a column filter and decide inside.
+        const msgsChannel = supabase
+            .channel('global-chat-messages')
             .on(
                 'postgres_changes',
                 {
                     event: 'INSERT',
                     schema: 'public',
                     table: 'chat_messages',
-                    filter: 'sender_type=eq.customer',
                 },
                 (payload) => {
                     if (!readyRef.current) return;
                     const msg = payload.new as any;
-                    addNotificationRef.current({
-                        type: 'new_message',
-                        title: '💬 Nuevo mensaje',
-                        body: msg.message?.substring(0, 120) || 'Mensaje recibido',
-                    });
+                    const text: string = msg.message || '';
+                    const sender: string = msg.sender_type || '';
+
+                    if (sender === 'customer') {
+                        // Regular new message notification
+                        addNotificationRef.current({
+                            type: 'new_message',
+                            title: '💬 Nuevo mensaje',
+                            body: text.substring(0, 120) || 'Mensaje recibido',
+                        });
+                    } else if (sender === 'bot' && text.includes('ESCALAMIENTO')) {
+                        // Escalation marker message
+                        const razonMatch = text.match(/Raz[oó]n:\s*([^|]+)/);
+                        const catMatch = text.match(/Categor[íi]a:\s*(\S+)/);
+                        const razon = razonMatch ? razonMatch[1].trim() : 'Atención requerida';
+                        const categoria = catMatch
+                            ? catMatch[1].replace(/[—–\s].*$/, '').trim()
+                            : 'otro';
+
+                        const catLabels: Record<string, string> = {
+                            pago: '💳 Problema de pago',
+                            queja: '😤 Queja / Reclamo',
+                            producto_danado: '📦 Producto dañado',
+                            solicitud_especial: '✨ Solicitud especial',
+                            otro: '❓ Requiere atención',
+                        };
+
+                        addNotificationRef.current({
+                            type: 'escalation',
+                            title: '🚨 ¡Requiere atención humana!',
+                            body: `${catLabels[categoria] || '❓ Requiere atención'}: ${razon}`,
+                            conversationId: msg.conversation_id,
+                        });
+                    }
                 }
             )
+            .subscribe();
+
+        // ── Channel 2: New orders ──
+        const ordersChannel = supabase
+            .channel('global-orders')
             .on(
                 'postgres_changes',
                 {
@@ -183,54 +220,12 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
                     });
                 }
             )
-            .on(
-                'postgres_changes',
-                {
-                    // Listen for the escalation marker message the webhook inserts.
-                    // Using INSERT (not UPDATE) because Supabase Realtime sends full
-                    // row data on INSERT without needing REPLICA IDENTITY FULL.
-                    event: 'INSERT',
-                    schema: 'public',
-                    table: 'chat_messages',
-                    filter: 'sender_type=eq.bot',
-                },
-                (payload) => {
-                    if (!readyRef.current) return;
-                    const msg = payload.new as any;
-                    const text: string = msg.message || '';
-
-                    // Only fire for escalation marker messages
-                    // Use includes('ESCALAMIENTO') for robustness (emoji byte encoding)
-                    if (!text.includes('ESCALAMIENTO') || !text.includes('Razón:')) return;
-
-                    // Parse reason and category from the marker text:
-                    // "[🚨 ESCALAMIENTO] Razón: X | Categoría: Y — Bot pausado..."
-                    const razonMatch = text.match(/Raz[oó]n:\s*([^|]+)/);
-                    const catMatch = text.match(/Categor[íi]a:\s*(\S+)/);
-                    const razon = razonMatch ? razonMatch[1].trim() : 'Atención requerida';
-                    const categoria = catMatch ? catMatch[1].replace(/[—–\s].*$/, '').trim() : 'otro';
-
-                    const catLabels: Record<string, string> = {
-                        pago: '💳 Problema de pago',
-                        queja: '😤 Queja / Reclamo',
-                        producto_danado: '📦 Producto dañado',
-                        solicitud_especial: '✨ Solicitud especial',
-                        otro: '❓ Requiere atención',
-                    };
-
-                    addNotificationRef.current({
-                        type: 'escalation',
-                        title: '🚨 ¡Requiere atención humana!',
-                        body: `${catLabels[categoria] || '❓ Requiere atención'}: ${razon}`,
-                        conversationId: msg.conversation_id,
-                    });
-                }
-            )
             .subscribe();
 
         return () => {
             clearTimeout(readyTimer);
-            supabase.removeChannel(channel);
+            supabase.removeChannel(msgsChannel);
+            supabase.removeChannel(ordersChannel);
         };
     }, []);
 
