@@ -146,10 +146,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
             readyRef.current = true;
         }, 3000);
 
-        // ── Channel 1: All chat_messages (customer + bot escalation) ──
-        // NOTE: Supabase Realtime does NOT allow two listeners with
-        // different column filters on the SAME table in the SAME channel.
-        // We use ONE listener without a column filter and decide inside.
+        // ── Channel 1: Customer messages (Realtime with column filter) ──
         const msgsChannel = supabase
             .channel('global-chat-messages')
             .on(
@@ -158,44 +155,16 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
                     event: 'INSERT',
                     schema: 'public',
                     table: 'chat_messages',
+                    filter: 'sender_type=eq.customer',
                 },
                 (payload) => {
                     if (!readyRef.current) return;
                     const msg = payload.new as any;
-                    const text: string = msg.message || '';
-                    const sender: string = msg.sender_type || '';
-
-                    if (sender === 'customer') {
-                        // Regular new message notification
-                        addNotificationRef.current({
-                            type: 'new_message',
-                            title: '💬 Nuevo mensaje',
-                            body: text.substring(0, 120) || 'Mensaje recibido',
-                        });
-                    } else if (sender === 'bot' && text.includes('ESCALAMIENTO')) {
-                        // Escalation marker message
-                        const razonMatch = text.match(/Raz[oó]n:\s*([^|]+)/);
-                        const catMatch = text.match(/Categor[íi]a:\s*(\S+)/);
-                        const razon = razonMatch ? razonMatch[1].trim() : 'Atención requerida';
-                        const categoria = catMatch
-                            ? catMatch[1].replace(/[—–\s].*$/, '').trim()
-                            : 'otro';
-
-                        const catLabels: Record<string, string> = {
-                            pago: '💳 Problema de pago',
-                            queja: '😤 Queja / Reclamo',
-                            producto_danado: '📦 Producto dañado',
-                            solicitud_especial: '✨ Solicitud especial',
-                            otro: '❓ Requiere atención',
-                        };
-
-                        addNotificationRef.current({
-                            type: 'escalation',
-                            title: '🚨 ¡Requiere atención humana!',
-                            body: `${catLabels[categoria] || '❓ Requiere atención'}: ${razon}`,
-                            conversationId: msg.conversation_id,
-                        });
-                    }
+                    addNotificationRef.current({
+                        type: 'new_message',
+                        title: '💬 Nuevo mensaje',
+                        body: (msg.message as string)?.substring(0, 120) || 'Mensaje recibido',
+                    });
                 }
             )
             .subscribe();
@@ -226,6 +195,61 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
             clearTimeout(readyTimer);
             supabase.removeChannel(msgsChannel);
             supabase.removeChannel(ordersChannel);
+        };
+    }, []);
+
+    // ─── Polling for escalations (bulletproof — no Realtime dependency) ───
+    const notifiedEscalationsRef = useRef<Set<string>>(new Set());
+
+    useEffect(() => {
+        const catLabels: Record<string, string> = {
+            pago: '💳 Problema de pago',
+            queja: '😤 Queja / Reclamo',
+            producto_danado: '📦 Producto dañado',
+            solicitud_especial: '✨ Solicitud especial',
+            otro: '❓ Requiere atención',
+        };
+
+        const checkEscalations = async () => {
+            if (!readyRef.current) return;
+            try {
+                // Look for escalations created in the last 2 minutes
+                const cutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+                const { data } = await supabase
+                    .from('chat_conversations')
+                    .select('id, escalation_reason, escalation_category')
+                    .not('escalation_reason', 'is', null)
+                    .gte('escalated_at', cutoff);
+
+                if (!data) return;
+
+                for (const conv of data) {
+                    // Only notify once per conversation escalation
+                    if (notifiedEscalationsRef.current.has(conv.id)) continue;
+                    notifiedEscalationsRef.current.add(conv.id);
+
+                    addNotificationRef.current({
+                        type: 'escalation',
+                        title: '🚨 ¡Requiere atención humana!',
+                        body: `${catLabels[conv.escalation_category] || '❓ Requiere atención'}: ${conv.escalation_reason}`,
+                        conversationId: conv.id,
+                    });
+                }
+            } catch (_) {
+                // Ignore errors — escalation_columns may not exist yet
+            }
+        };
+
+        // Wait 4 seconds before starting to poll (after readyRef is true)
+        let intervalId: ReturnType<typeof setInterval> | null = null;
+        const startDelay = setTimeout(() => {
+            checkEscalations(); // immediate first check
+            intervalId = setInterval(checkEscalations, 15000); // then every 15s
+        }, 4000);
+
+        return () => {
+            clearTimeout(startDelay);
+            if (intervalId) clearInterval(intervalId);
         };
     }, []);
 
