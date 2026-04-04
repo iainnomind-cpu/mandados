@@ -77,11 +77,63 @@ export default function Chatbot({ initialConversationId }: { initialConversation
       .limit(100);
 
     if (!error && data) {
-      const mapped: ChatConversation[] = data.map((c: any) => ({
-        ...c,
-        customer_name: c.customers?.name || null,
-        customer_phone: c.customers?.phone || extractPhoneFromChannel(c.channel),
-      }));
+      // Also fetch all orders that have a conversation_id to detect completed conversations
+      const convIds = data.filter((c: any) => c.status === 'active').map((c: any) => c.id);
+      let ordersForConvs: Record<string, boolean> = {};
+
+      if (convIds.length > 0) {
+        const { data: orders } = await supabase
+          .from('orders')
+          .select('conversation_id')
+          .in('conversation_id', convIds);
+
+        if (orders) {
+          for (const o of orders) {
+            if (o.conversation_id) {
+              ordersForConvs[o.conversation_id] = true;
+            }
+          }
+        }
+      }
+
+      const mapped: ChatConversation[] = data.map((c: any) => {
+        // Auto-correct: if conversation is 'active' but has a linked order, mark as 'completed'
+        let effectiveStatus = c.status;
+        if (c.status === 'active' && ordersForConvs[c.id]) {
+          effectiveStatus = 'completed';
+          // Also fix in DB (fire and forget)
+          supabase
+            .from('chat_conversations')
+            .update({ status: 'completed', ended_at: new Date().toISOString() })
+            .eq('id', c.id)
+            .then(() => {
+              console.log(`🔧 Auto-corrected conversation ${c.id} status to completed`);
+            });
+        }
+        // Auto-detect abandoned: active conversation with no order, started more than 24h ago
+        else if (c.status === 'active' && !ordersForConvs[c.id]) {
+          const startedAt = new Date(c.started_at).getTime();
+          const hoursSinceStart = (Date.now() - startedAt) / (1000 * 60 * 60);
+          if (hoursSinceStart > 24) {
+            effectiveStatus = 'abandoned';
+            // Also fix in DB (fire and forget)
+            supabase
+              .from('chat_conversations')
+              .update({ status: 'abandoned', ended_at: new Date().toISOString() })
+              .eq('id', c.id)
+              .then(() => {
+                console.log(`🔧 Auto-marked conversation ${c.id} as abandoned (${Math.round(hoursSinceStart)}h old)`);
+              });
+          }
+        }
+
+        return {
+          ...c,
+          status: effectiveStatus,
+          customer_name: c.customers?.name || null,
+          customer_phone: c.customers?.phone || extractPhoneFromChannel(c.channel),
+        };
+      });
       setConversations(mapped);
       if (mapped.length > 0 && !selectedId) {
         setSelectedId(mapped[0].id);

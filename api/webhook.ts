@@ -758,6 +758,32 @@ async function processIncomingMessage(
       if (order) {
         console.log('✅ Pedido creado:', orderNumber, order.id);
 
+        // Mark conversation as completed (with retry)
+        console.log('📡 Actualizando estado de conversación a completed...');
+        const updateResult = await supabaseUpdate('chat_conversations', conversation.id, {
+          status: 'completed',
+          ended_at: new Date().toISOString(),
+        });
+        console.log('📡 Resultado de actualización de estado:', JSON.stringify(updateResult));
+
+        // Verify the update took effect
+        const verifyConv = await supabaseGet(
+          'chat_conversations',
+          `id=eq.${conversation.id}&select=id,status`
+        );
+        if (verifyConv.length > 0 && verifyConv[0].status !== 'completed') {
+          console.warn('⚠️ Estado no se actualizó en primer intento, reintentando...');
+          // Retry with direct REST call
+          const retryRes = await fetch(`${SUPABASE_URL}/rest/v1/chat_conversations?id=eq.${conversation.id}`, {
+            method: 'PATCH',
+            headers: supabaseHeaders,
+            body: JSON.stringify({ status: 'completed', ended_at: new Date().toISOString() }),
+          });
+          console.log('📡 Retry resultado:', retryRes.status, await retryRes.text());
+        } else {
+          console.log('✅ Estado de conversación actualizado a completed correctamente');
+        }
+
         // Update customer name if we got it
         if (orderData.nombre_cliente) {
           await supabaseUpdate('customers', customer.id, {
