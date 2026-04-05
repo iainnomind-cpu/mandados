@@ -8,7 +8,8 @@ import OrderCard from '../dispatch/OrderCard';
 import DriverCard from '../dispatch/DriverCard';
 import RoutePanel from '../dispatch/RoutePanel';
 import AssignDriverModal from '../modals/AssignDriverModal';
-import { Order, DriverWithProfile, RouteStop } from '../../types';
+import OrderDetailsModal from '../modals/OrderDetailsModal';
+import { Order, OrderWithItems, DriverWithProfile, RouteStop } from '../../types';
 
 export default function DispatchManagement() {
   const { profile } = useAuth();
@@ -30,24 +31,25 @@ export default function DispatchManagement() {
   } = useRoutes();
 
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [viewOrder, setViewOrder] = useState<Order | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
   const handleAutoAssign = async (order: Order) => {
     if (!profile?.id) return;
     try {
       await autoAssign(order.id, profile.id);
-      showToast('success', `Pedido ${order.order_number} auto-asignado con éxito`);
+      showToast(`Pedido ${order.order_number} auto-asignado con éxito`, 'success');
     } catch (err: any) {
-      showToast('error', err.message || 'Error al auto-asignar');
+      showToast(err.message || 'Error al auto-asignar', 'error');
     }
   };
 
   const handleCompleteStop = async (stop: RouteStop, route: any) => {
     try {
       await completeStop(stop.id, stop.route_id, stop.order_id, route.driver_id);
-      showToast('success', 'Entrega completada y notificada a finanzas');
+      showToast('Entrega completada y notificada a finanzas', 'success');
     } catch (err: any) {
-      showToast('error', err.message || 'Error al completar entrega');
+      showToast(err.message || 'Error al completar entrega', 'error');
     }
   };
 
@@ -154,6 +156,7 @@ export default function DispatchManagement() {
                   order={order}
                   onAssign={setSelectedOrder}
                   onAutoAssign={handleAutoAssign}
+                  onView={setViewOrder}
                 />
               ))
             )}
@@ -243,6 +246,20 @@ export default function DispatchManagement() {
             reloadDispatch();
             reloadRoutes();
           }}
+        />
+      )}
+
+      {/* Order Details Modal */}
+      {viewOrder && (
+        <OrderDetailsModal
+          order={viewOrder as OrderWithItems}
+          onClose={() => setViewOrder(null)}
+          onUpdate={() => {
+            setViewOrder(null);
+            reloadDispatch();
+          }}
+          onToast={showToast}
+          onDelete={() => setViewOrder(null)}
         />
       )}
     </div>
