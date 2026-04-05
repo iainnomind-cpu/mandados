@@ -175,20 +175,42 @@ export default function BusinessHoursConfig() {
     setError(null);
 
     try {
-      const { error: err } = await supabase
+      console.log('💾 Guardando configuración:', JSON.stringify(businessHours, null, 2));
+
+      const { error: err, data: updateData } = await supabase
         .from('system_settings')
         .update({
           business_hours: businessHours,
           outside_hours_message: outsideMessage,
         })
-        .eq('id', 1);
+        .eq('id', 1)
+        .select();
 
-      if (err) throw err;
+      if (err) {
+        console.error('❌ Error al guardar:', err);
+        throw err;
+      }
+
+      console.log('✅ Guardado exitoso, respuesta:', JSON.stringify(updateData));
+
+      // Verify by reading back
+      const { data: verifyData } = await supabase
+        .from('system_settings')
+        .select('business_hours, outside_hours_message')
+        .eq('id', 1)
+        .single();
+
+      console.log('🔍 Verificación post-guardado:', JSON.stringify(verifyData?.business_hours, null, 2));
+
+      if (verifyData?.business_hours) {
+        setBusinessHours(verifyData.business_hours);
+      }
+
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } catch (e: any) {
       console.error('Error saving settings:', e);
-      setError('Error al guardar la configuración');
+      setError(`Error al guardar: ${e.message || 'desconocido'}`);
     } finally {
       setSaving(false);
     }
