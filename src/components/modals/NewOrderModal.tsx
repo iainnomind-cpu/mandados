@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react';
-import { X, Plus, Trash2, ShoppingCart } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { X, Plus, Trash2, ShoppingCart, MapPin } from 'lucide-react';
 import { createOrderWithItems } from '../../lib/orderSync';
-import { OrderItemDraft, OrderType, OrderSource, OrderPriority } from '../../types';
+import { getActiveZones } from '../../lib/zoneSync';
+import { OrderItemDraft, OrderType, OrderSource, OrderPriority, DeliveryZone } from '../../types';
 
 interface NewOrderModalProps {
   onClose: () => void;
@@ -12,14 +13,23 @@ interface NewOrderModalProps {
 const EMPTY_ITEM: OrderItemDraft = {
   product_name: '',
   quantity: 1,
-  unit_price: 0,
+  unit_price: '' as unknown as number,
 };
+
 
 export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderModalProps) {
   // --- Customer fields ---
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [deliveryLat, setDeliveryLat] = useState<number | null>(null);
+
+  // --- Zonas y Comisión ---
+  const [zones, setZones] = useState<DeliveryZone[]>([]);
+  const [deliveryFee, setDeliveryFee] = useState<number>(40);
+  useEffect(() => {
+    getActiveZones().then(setZones).catch(console.error);
+  }, []);
 
   // --- Order metadata ---
   const [orderType, setOrderType] = useState<OrderType>('mandadito');
@@ -33,10 +43,12 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
   const [loading, setLoading] = useState(false);
 
   // Auto-calculate total
-  const totalAmount = useMemo(
-    () => items.reduce((s, it) => s + it.quantity * it.unit_price, 0),
+  const itemsTotal = useMemo(
+    () => items.reduce((s, it) => s + it.quantity * (parseFloat(it.unit_price as any) || 0), 0),
     [items]
   );
+
+  const totalAmount = itemsTotal + deliveryFee;
 
   // --- Item helpers ---
   const addItem = () => setItems((prev) => [...prev, { ...EMPTY_ITEM }]);
@@ -51,12 +63,25 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (!customerName.trim()) {
+      onError('El nombre del cliente es requerido');
+      return;
+    }
+    if (!customerPhone.trim()) {
+      onError('El teléfono del cliente es requerido');
+      return;
+    }
+    if (!deliveryAddress.trim()) {
+      onError('La dirección de entrega es requerida');
+      return;
+    }
+
     const validItems = items.filter(
       (it) => it.product_name.trim() !== '' && it.quantity > 0
     );
 
-    if (!customerName.trim()) {
-      onError('El nombre del cliente es requerido');
+    if (validItems.length === 0) {
+      onError('Agrega al menos un artículo con nombre y cantidad');
       return;
     }
 
@@ -68,21 +93,22 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
         {
           order_number: orderNumber,
           customer_name: customerName.trim(),
-          customer_phone: customerPhone.trim() || undefined,
+          customer_phone: customerPhone.trim(),
           // Store delivery_address as a JSON object for compatibility
-          delivery_address: { street: deliveryAddress.trim(), city: '' } as unknown as Record<string, unknown>,
+          delivery_address: { street: deliveryAddress.trim(), city: '', state: '' },
           order_type: orderType,
           source,
           priority,
           status: 'pending',
           // pickup address is optional for delivery-only orders
-          pickup_address: { street: '', city: '' } as unknown as Record<string, unknown>,
+          pickup_address: { street: '', city: '', state: '' },
           special_instructions: specialInstructions.trim() || undefined,
           payment_method: 'cash',
           payment_status: 'pending',
+          delivery_fee: deliveryFee,
           total_amount: totalAmount,
         } as Parameters<typeof createOrderWithItems>[0],
-        validItems
+        validItems.map(it => ({ ...it, unit_price: parseFloat(it.unit_price as any) || 0 }))
       );
 
       onSuccess('Pedido creado exitosamente');
@@ -133,27 +159,35 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Teléfono
+                  Teléfono <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="tel"
                   value={customerPhone}
                   onChange={(e) => setCustomerPhone(e.target.value)}
                   placeholder="+52 55 1234 5678"
+                  required
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-              <div>
+              <div className="sm:col-span-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Dirección de entrega
+                  Dirección de entrega <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  value={deliveryAddress}
-                  onChange={(e) => setDeliveryAddress(e.target.value)}
-                  placeholder="Calle, colonia, ciudad"
-                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                  <input
+                    type="text"
+                    value={deliveryAddress}
+                    onChange={(e) => setDeliveryAddress(e.target.value)}
+                    placeholder="Calle, colonia, ciudad"
+                    required
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                {deliveryLat && (
+                  <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
+                    <MapPin className="w-3 h-3" />
+                    Comisión aplicada: ${deliveryFee} MXN
+                  </p>
+                )}
               </div>
             </div>
           </section>
@@ -231,7 +265,8 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
 
             <div className="space-y-2">
               {items.map((item, idx) => {
-                const subtotal = item.quantity * item.unit_price;
+                const priceNum = parseFloat(item.unit_price as any) || 0;
+                const subtotal = item.quantity * priceNum;
                 return (
                   <div key={idx} className="grid grid-cols-12 gap-2 items-center">
                     <input
@@ -245,19 +280,28 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
                       type="number"
                       min={1}
                       value={item.quantity}
-                      onChange={(e) =>
-                        updateItem(idx, { quantity: Math.max(1, parseInt(e.target.value) || 1) })
-                      }
+                      onFocus={(e) => e.target.select()}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        if (raw === '') {
+                          updateItem(idx, { quantity: 0 });
+                        } else {
+                          updateItem(idx, { quantity: Math.max(1, parseInt(raw, 10) || 1) });
+                        }
+                      }}
+                      onBlur={() => {
+                        if (item.quantity < 1) updateItem(idx, { quantity: 1 });
+                      }}
                       className="col-span-2 px-2 py-1.5 text-sm border border-gray-300 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     <input
                       type="number"
                       min={0}
                       step="0.01"
-                      value={item.unit_price === 0 ? '' : item.unit_price}
+                      value={item.unit_price}
                       placeholder="0.00"
                       onChange={(e) =>
-                        updateItem(idx, { unit_price: parseFloat(e.target.value) || 0 })
+                        updateItem(idx, { unit_price: e.target.value as unknown as number })
                       }
                       className="col-span-2 px-2 py-1.5 text-sm border border-gray-300 rounded-lg text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
@@ -279,9 +323,29 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
 
             {/* Total */}
             <div className="mt-4 flex justify-end">
-              <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 min-w-[180px]">
-                <p className="text-xs text-gray-500 mb-1">Total del pedido</p>
-                <p className="text-2xl font-bold text-gray-900">${totalAmount.toFixed(2)}</p>
+              <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 min-w-[200px]">
+                <div className="flex justify-between text-xs text-gray-500 mb-1">
+                  <span>Subtotal:</span>
+                  <span>${itemsTotal.toFixed(2)}</span>
+                </div>
+                <div className="flex justify-between items-center text-xs text-gray-500 mb-2 border-b pb-1">
+                  <span>Envío:</span>
+                  <div className="flex items-center gap-1">
+                    <span>$</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={deliveryFee === 0 ? '' : deliveryFee}
+                      onChange={(e) => setDeliveryFee(parseFloat(e.target.value) || 0)}
+                      className="w-16 px-1 py-0.5 border border-gray-300 rounded text-right focus:outline-none"
+                    />
+                  </div>
+                </div>
+                <div className="flex justify-between items-baseline">
+                  <span className="text-sm font-bold text-gray-700 mr-2">Total:</span>
+                  <p className="text-2xl font-bold text-gray-900">${totalAmount.toFixed(2)}</p>
+                </div>
               </div>
             </div>
           </section>

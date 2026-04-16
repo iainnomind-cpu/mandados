@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LayoutDashboard, Package, Truck, DollarSign, Users, MessageCircle, LogOut, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Package, Truck, DollarSign, Users, MessageCircle, LogOut, Menu, X, Map } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { NotificationBell } from './GlobalNotifications';
 
@@ -20,6 +20,7 @@ export default function Layout({ children, currentModule, onModuleChange }: Layo
     { id: 'dispatch', label: 'Despacho', icon: Truck, roles: ['admin', 'dispatcher'] },
     { id: 'finance', label: 'Finanzas', icon: DollarSign, roles: ['admin', 'finance'] },
     { id: 'fleet', label: 'Flotilla', icon: Users, roles: ['admin', 'dispatcher'] },
+    { id: 'zones', label: 'Zonas', icon: Map, roles: ['admin'] },
   ];
 
   const filteredMenuItems = menuItems.filter(item =>
@@ -76,8 +77,8 @@ export default function Layout({ children, currentModule, onModuleChange }: Layo
                     setSidebarOpen(false);
                   }}
                   className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive
-                      ? 'bg-blue-50 text-blue-600'
-                      : 'text-gray-700 hover:bg-gray-50'
+                    ? 'bg-blue-50 text-blue-600'
+                    : 'text-gray-700 hover:bg-gray-50'
                     }`}
                 >
                   <Icon className="w-5 h-5" />

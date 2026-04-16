@@ -12,7 +12,8 @@ interface UseRoutesReturn {
         stopId: string,
         routeId: string,
         orderId: string,
-        driverId: string
+        driverId: string,
+        podData?: { collectedAmount: number; paymentMethod: 'cash' | 'transfer' | 'card' }
     ) => Promise<void>;
 }
 
@@ -46,8 +47,8 @@ export function useRoutes(): UseRoutesReturn {
     useRealtimeRouteStops(stableCallback);
 
     const completeStop = useCallback(
-        async (stopId: string, routeId: string, orderId: string, driverId: string) => {
-            await completeRouteStop(stopId, routeId, orderId, driverId);
+        async (stopId: string, routeId: string, orderId: string, driverId: string, podData?: { collectedAmount: number; paymentMethod: 'cash' | 'transfer' | 'card' }) => {
+            await completeRouteStop(stopId, routeId, orderId, driverId, podData);
             await load();
         },
         [load]

@@ -28,27 +28,36 @@ export async function pickBestDriver(
     const { data: drivers, error } = await supabase
         .from('drivers')
         .select('*, profiles:user_id(full_name)')
-        .eq('status', 'available')
-        .order('active_load_count', { ascending: true });
+        .in('status', ['available', 'busy']);
 
     if (error || !drivers || drivers.length === 0) return null;
 
+    let availableDrivers = (drivers as DriverWithProfile[]).filter(d => d.status === 'available');
+    let driversToConsider = availableDrivers.length > 0 ? availableDrivers : (drivers as DriverWithProfile[]);
+
     // If we have order coordinates, prefer nearest with lowest load
     if (orderLat != null && orderLng != null) {
-        const scored = (drivers as DriverWithProfile[]).map((d) => {
+        const scored = driversToConsider.map((d) => {
             const dist =
                 d.current_lat != null && d.current_lng != null
                     ? haversineKm(d.current_lat, d.current_lng, orderLat!, orderLng!)
                     : 9999;
-            // Score: load * 10 + distance (km), lower is better
-            return { driver: d, score: (d.active_load_count ?? 0) * 10 + dist };
+            // Score: load * 1000 + deliveries * 10 + distance (km), lower is better
+            return { driver: d, score: (d.active_load_count ?? 0) * 1000 + (d.total_deliveries ?? 0) * 10 + dist };
         });
         scored.sort((a, b) => a.score - b.score);
         return scored[0].driver;
     }
 
-    // Fallback: just lowest load
-    return (drivers as DriverWithProfile[])[0];
+    // Fallback: just lowest load, then lowest deliveries
+    driversToConsider.sort((a, b) => {
+        if ((a.active_load_count ?? 0) !== (b.active_load_count ?? 0)) {
+            return (a.active_load_count ?? 0) - (b.active_load_count ?? 0);
+        }
+        return (a.total_deliveries ?? 0) - (b.total_deliveries ?? 0);
+    });
+
+    return driversToConsider[0];
 }
 
 // ============================================================
@@ -60,7 +69,7 @@ export async function createOrGetDriverRoute(
 ): Promise<DriverRoute> {
     const routeDate = date ?? new Date().toISOString().slice(0, 10);
 
-    // Try to find existing active route
+    // Try to find existing route for today
     const { data: existing } = await supabase
         .from('driver_routes')
         .select('*')
@@ -68,7 +77,19 @@ export async function createOrGetDriverRoute(
         .eq('route_date', routeDate)
         .maybeSingle();
 
-    if (existing) return existing as DriverRoute;
+    if (existing) {
+        if (existing.status !== 'active') {
+            const { data: updated, error: updateError } = await supabase
+                .from('driver_routes')
+                .update({ status: 'active' })
+                .eq('id', existing.id)
+                .select()
+                .single();
+            if (updateError) throw updateError;
+            return updated as DriverRoute;
+        }
+        return existing as DriverRoute;
+    }
 
     // Create new
     const { data: created, error } = await supabase
@@ -154,9 +175,10 @@ export async function autoAssignOrder(
 export async function manualAssignOrder(
     orderId: string,
     driverId: string,
-    dispatcherId: string
+    dispatcherId: string,
+    anticipoAmount?: number
 ): Promise<{ driverId: string; routeId: string; stopId: string }> {
-    // Validate driver availability
+    // Validate driver exists and is active (available or busy for multi-load)
     const { data: driver, error: driverErr } = await supabase
         .from('drivers')
         .select('id, status')
@@ -164,7 +186,7 @@ export async function manualAssignOrder(
         .single();
 
     if (driverErr || !driver) throw new Error('Conductor no encontrado');
-    if (driver.status !== 'available') {
+    if (driver.status !== 'available' && driver.status !== 'busy') {
         throw new Error('El conductor no está disponible');
     }
 
@@ -184,7 +206,7 @@ export async function manualAssignOrder(
 
     await supabase
         .from('drivers')
-        .update({ active_load_count: (driverCurrent?.active_load_count ?? 0) + 1 })
+        .update({ active_load_count: (driverCurrent?.active_load_count ?? 0) + 1, status: 'busy' })
         .eq('id', driverId);
 
     // Insert into assignments (OMS assignment record)
@@ -202,11 +224,24 @@ export async function manualAssignOrder(
         {
             order_id: orderId,
             event_type: 'assigned',
-            description: 'Pedido asignado a conductor desde TMS',
+            description: `Pedido asignado a conductor desde TMS${anticipoAmount ? ` - Anticipo registrado: $${anticipoAmount}` : ''}`,
             user_id: dispatcherId,
             metadata: { driver_id: driverId },
         },
     ]);
+
+    // Handle Anticipo
+    if (anticipoAmount && anticipoAmount > 0) {
+        await supabase.from('cod_transactions').insert([
+            {
+                order_id: orderId,
+                driver_id: driverId,
+                transaction_type: 'anticipo',
+                amount: anticipoAmount,
+                status: 'pending'
+            }
+        ]);
+    }
 
     // Create/get today's route for driver
     const route = await createOrGetDriverRoute(driverId);
@@ -224,7 +259,8 @@ export async function completeRouteStop(
     stopId: string,
     routeId: string,
     orderId: string,
-    driverId: string
+    driverId: string,
+    podData?: { collectedAmount: number; paymentMethod: 'cash' | 'transfer' | 'card' }
 ): Promise<void> {
     const now = new Date().toISOString();
 
@@ -271,16 +307,31 @@ export async function completeRouteStop(
             .eq('id', routeId);
     }
 
-    // Notify finance module
-    await notifyFinanceDeliveryCompleted(orderId, driverId);
+    // Notify finance module about general delivery completion 
+    // Uses the old flow so we might consider skipping if we are using the new COD flow
+    if (!podData) {
+        await notifyFinanceDeliveryCompleted(orderId, driverId);
+    } else {
+        // Register the verified payment collection in COD transactions
+        await supabase.from('cod_transactions').insert([
+            {
+                order_id: orderId,
+                driver_id: driverId,
+                transaction_type: 'cobro_cliente',
+                amount: podData.collectedAmount,
+                payment_method: podData.paymentMethod,
+                status: 'pending'
+            }
+        ]);
+    }
 
     // Log event
     await supabase.from('order_events').insert([
         {
             order_id: orderId,
             event_type: 'delivered',
-            description: 'Pedido entregado confirmado por conductor (TMS)',
-            metadata: { stop_id: stopId, route_id: routeId },
+            description: `Pedido entregado confirmado por conductor (TMS). ${podData ? `Monto cobrado: $${podData.collectedAmount}` : ''}`,
+            metadata: { stop_id: stopId, route_id: routeId, pod_data: podData || null },
         },
     ]);
 }
@@ -318,12 +369,12 @@ export async function notifyFinanceDeliveryCompleted(
         .single();
 
     if (order && order.payment_method === 'cash') {
-        await supabase.from('transactions').insert([
+        await supabase.from('cod_transactions').insert([
             {
                 order_id: orderId,
                 driver_id: driverId,
-                transaction_type: 'collection',
-                amount: (order.total_amount ?? 0) + (order.delivery_fee ?? 0),
+                transaction_type: 'cobro_cliente',
+                amount: order.total_amount ?? 0,
                 payment_method: 'cash',
                 status: 'pending',
             },
@@ -360,7 +411,7 @@ export async function fetchActiveRoutesWithStops(): Promise<DriverRoute[]> {
       ),
       route_stops(
         id, stop_sequence, status, estimated_arrival, order_id,
-        order:order_id(order_number, customer_name, delivery_address, priority, total_amount)
+        order:orders(order_number, customer_name, delivery_address, priority, total_amount)
       )
     `)
         .eq('status', 'active')

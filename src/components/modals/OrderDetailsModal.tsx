@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import {
   X, MapPin, Package, Calendar, User, Phone,
-  Edit3, Truck, CheckCircle, XCircle, Clock, UserCheck, ChevronDown,
+  Edit3, Truck, CheckCircle, XCircle, Clock, UserCheck, ChevronDown, DollarSign,
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import { updateOrderStatus, assignOrderToDriver } from '../../lib/orderSync';
+import { updateOrderStatus, markOrderAsDelivered, updateOrderAmount } from '../../lib/orderSync';
+import { manualAssignOrder } from '../../lib/dispatchSync';
 import { useAuth } from '../../contexts/AuthContext';
 import { OrderWithItems, Driver } from '../../types';
 import { ToastType } from '../NotificationToast';
@@ -72,7 +73,13 @@ export default function OrderDetailsModal({
   const [assigningDriver, setAssigningDriver] = useState(false);
   const [loadingDrivers, setLoadingDrivers] = useState(false);
 
+  // -- Editable amount state --
+  const [editingAmount, setEditingAmount] = useState(false);
+  const [amountValue, setAmountValue] = useState(String(order.total_amount ?? 0));
+  const [savingAmount, setSavingAmount] = useState(false);
+
   const canEditStatus = role === 'admin' || role === 'dispatcher' || role === 'operator';
+  const canEditAmount = role === 'admin' || role === 'dispatcher' || role === 'operator';
   const canAssignDriver = role === 'admin' || role === 'dispatcher';
   const canDelete = role === 'admin';
 
@@ -96,7 +103,11 @@ export default function OrderDetailsModal({
     if (newStatus === order.status) return;
     setSavingStatus(true);
     try {
-      await updateOrderStatus(order.id, newStatus, profile?.id);
+      if (newStatus === 'delivered') {
+        await markOrderAsDelivered(order.id, profile?.id);
+      } else {
+        await updateOrderStatus(order.id, newStatus, profile?.id);
+      }
       onToast(`Estado actualizado a "${STATUS_LABELS[newStatus]}"`, 'success');
       onUpdate();
     } catch {
@@ -110,7 +121,7 @@ export default function OrderDetailsModal({
     if (!selectedDriverId || selectedDriverId === (order.assigned_driver_id ?? '')) return;
     setAssigningDriver(true);
     try {
-      await assignOrderToDriver(order.id, selectedDriverId, profile?.id ?? '');
+      await manualAssignOrder(order.id, selectedDriverId, profile?.id ?? '');
       onToast('Conductor asignado exitosamente', 'success');
       onUpdate();
     } catch {
@@ -123,13 +134,32 @@ export default function OrderDetailsModal({
   const handleMarkDelivered = async () => {
     setSavingStatus(true);
     try {
-      await updateOrderStatus(order.id, 'delivered', profile?.id);
+      await markOrderAsDelivered(order.id, profile?.id);
       onToast('Pedido marcado como entregado', 'success');
       onUpdate();
     } catch {
       onToast('Error al marcar como entregado', 'error');
     } finally {
       setSavingStatus(false);
+    }
+  };
+
+  const handleSaveAmount = async () => {
+    const parsed = parseFloat(amountValue);
+    if (isNaN(parsed) || parsed < 0) {
+      onToast('Ingresa un monto válido', 'error');
+      return;
+    }
+    setSavingAmount(true);
+    try {
+      await updateOrderAmount(order.id, parsed, profile?.id);
+      onToast(`Monto actualizado a $${parsed.toFixed(2)}`, 'success');
+      setEditingAmount(false);
+      onUpdate();
+    } catch {
+      onToast('Error al actualizar el monto', 'error');
+    } finally {
+      setSavingAmount(false);
     }
   };
 
@@ -236,11 +266,50 @@ export default function OrderDetailsModal({
                 ))}
               </div>
               <div className="mt-3 flex justify-end">
-                <div className="bg-gray-50 rounded-lg px-4 py-2">
+                <div className="bg-gray-50 rounded-lg px-4 py-2 flex items-center gap-2">
                   <span className="text-xs text-gray-500">Total</span>
-                  <span className="ml-3 text-lg font-bold text-gray-900">
-                    ${(order.total_amount ?? 0).toFixed(2)}
-                  </span>
+                  {editingAmount ? (
+                    <div className="flex items-center gap-1.5">
+                      <DollarSign className="w-4 h-4 text-gray-400" />
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={amountValue}
+                        onChange={(e) => setAmountValue(e.target.value)}
+                        className="w-28 px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        autoFocus
+                      />
+                      <button
+                        onClick={handleSaveAmount}
+                        disabled={savingAmount}
+                        className="px-2 py-1 bg-green-600 text-white text-xs font-medium rounded-md hover:bg-green-700 disabled:opacity-50"
+                      >
+                        {savingAmount ? '…' : '✓'}
+                      </button>
+                      <button
+                        onClick={() => { setEditingAmount(false); setAmountValue(String(order.total_amount ?? 0)); }}
+                        className="px-2 py-1 border border-gray-300 text-gray-600 text-xs rounded-md hover:bg-gray-50"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="ml-1 text-lg font-bold text-gray-900">
+                        ${(order.total_amount ?? 0).toFixed(2)}
+                      </span>
+                      {canEditAmount && (
+                        <button
+                          onClick={() => { setAmountValue(String(order.total_amount ?? 0)); setEditingAmount(true); }}
+                          title="Editar monto"
+                          className="p-1 text-blue-500 hover:bg-blue-50 rounded transition-colors"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </>
+                  )}
                 </div>
               </div>
             </Section>
@@ -248,7 +317,47 @@ export default function OrderDetailsModal({
             <Section title="Artículos">
               <div className="flex items-center gap-2 text-sm text-gray-400">
                 <Package className="w-4 h-4" />
-                <span>Total del pedido: <strong className="text-gray-700">${(order.total_amount ?? 0).toFixed(2)}</strong></span>
+                {editingAmount ? (
+                  <div className="flex items-center gap-1.5">
+                    <span>Total del pedido:</span>
+                    <DollarSign className="w-4 h-4 text-gray-400" />
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={amountValue}
+                      onChange={(e) => setAmountValue(e.target.value)}
+                      className="w-28 px-2 py-1 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      autoFocus
+                    />
+                    <button
+                      onClick={handleSaveAmount}
+                      disabled={savingAmount}
+                      className="px-2 py-1 bg-green-600 text-white text-xs font-medium rounded-md hover:bg-green-700 disabled:opacity-50"
+                    >
+                      {savingAmount ? '…' : '✓'}
+                    </button>
+                    <button
+                      onClick={() => { setEditingAmount(false); setAmountValue(String(order.total_amount ?? 0)); }}
+                      className="px-2 py-1 border border-gray-300 text-gray-600 text-xs rounded-md hover:bg-gray-50"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ) : (
+                  <span>
+                    Total del pedido: <strong className="text-gray-700">${(order.total_amount ?? 0).toFixed(2)}</strong>
+                    {canEditAmount && (
+                      <button
+                        onClick={() => { setAmountValue(String(order.total_amount ?? 0)); setEditingAmount(true); }}
+                        title="Editar monto"
+                        className="ml-2 p-1 text-blue-500 hover:bg-blue-50 rounded transition-colors inline-flex"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </span>
+                )}
               </div>
             </Section>
           )}
@@ -296,7 +405,7 @@ export default function OrderDetailsModal({
                 <div className="relative flex-1">
                   <select
                     value={newStatus}
-                    onChange={(e) => setNewStatus(e.target.value)}
+                    onChange={(e) => setNewStatus(e.target.value as import('../../types').OrderStatus)}
                     className="w-full appearance-none pl-3 pr-8 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     {Object.entries(STATUS_LABELS).map(([val, label]) => (

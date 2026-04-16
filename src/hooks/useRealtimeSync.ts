@@ -168,3 +168,31 @@ export function useRealtimeRouteStops(callback: () => void) {
     return () => { supabase.removeChannel(channel); };
   }, [callback]);
 }
+
+export function useRealtimeCodTransactions(callback: () => void) {
+  useEffect(() => {
+    const channel = supabase
+      .channel('cod-transactions-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'cod_transactions' },
+        () => { callback(); }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [callback]);
+}
+
+export function useRealtimeDriverRemittances(callback: () => void) {
+  useEffect(() => {
+    const channel = supabase
+      .channel('driver-remittances-changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'driver_remittances' },
+        () => { callback(); }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [callback]);
+}

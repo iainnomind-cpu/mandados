@@ -1,13 +1,38 @@
 import { useState, useEffect, useCallback } from 'react';
 import { DollarSign, TrendingUp, Wallet, Calendar } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
-import { Transaction, Reconciliation, Driver } from '../../types';
-import { useRealtimeTransactions } from '../../hooks/useRealtimeSync';
+import { Driver } from '../../types';
+import { useRealtimeCodTransactions, useRealtimeDriverRemittances } from '../../hooks/useRealtimeSync';
 import ReconciliationModal from '../modals/ReconciliationModal';
 
+interface CodTransaction {
+  id: string;
+  order_id: string;
+  driver_id: string;
+  transaction_type: 'anticipo' | 'cobro_cliente' | 'liquidacion';
+  amount: number;
+  payment_method: 'cash' | 'transfer' | 'card';
+  status: 'pending' | 'reconciled';
+  created_at: string;
+  // Joined
+  order?: { order_number: string };
+}
+
+interface DriverRemittance {
+  id: string;
+  driver_id: string;
+  period_date: string;
+  total_collected: number;
+  total_advances: number;
+  driver_commissions: number;
+  net_remittance_due: number;
+  status: 'pending' | 'paid_to_company';
+  created_at: string;
+}
+
 export default function FinanceManagement() {
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [reconciliations, setReconciliations] = useState<Reconciliation[]>([]);
+  const [transactions, setTransactions] = useState<CodTransaction[]>([]);
+  const [remittances, setRemittances] = useState<DriverRemittance[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const [selectedDriver, setSelectedDriver] = useState<string>('all');
   const [dateFilter, setDateFilter] = useState<string>('today');
@@ -26,14 +51,15 @@ export default function FinanceManagement() {
     loadTransactions();
   }, [selectedDriver, dateFilter]);
 
-  useRealtimeTransactions(loadTransactionsCallback);
+  useRealtimeCodTransactions(loadTransactionsCallback);
+  useRealtimeDriverRemittances(loadTransactionsCallback);
 
   const loadData = async () => {
     setLoading(true);
     await Promise.all([
       loadDrivers(),
       loadTransactions(),
-      loadReconciliations(),
+      loadRemittances(),
     ]);
     setLoading(false);
   };
@@ -51,8 +77,8 @@ export default function FinanceManagement() {
 
   const loadTransactions = async () => {
     let query = supabase
-      .from('transactions')
-      .select('*')
+      .from('cod_transactions')
+      .select('*, order:order_id(order_number)')
       .order('created_at', { ascending: false });
 
     if (selectedDriver !== 'all') {
@@ -74,57 +100,53 @@ export default function FinanceManagement() {
     const { data, error } = await query;
 
     if (!error && data) {
-      setTransactions(data);
+      setTransactions(data as any);
     }
   };
 
-  const loadReconciliations = async () => {
+  const loadRemittances = async () => {
     const { data, error } = await supabase
-      .from('reconciliations')
+      .from('driver_remittances')
       .select('*')
-      .order('reconciliation_date', { ascending: false })
+      .order('period_date', { ascending: false })
       .limit(20);
 
     if (!error && data) {
-      setReconciliations(data);
+      setRemittances(data);
     }
   };
 
   const calculateTotals = () => {
     const collections = transactions
-      .filter(t => t.transaction_type === 'collection')
+      .filter(t => t.transaction_type === 'cobro_cliente' && t.payment_method === 'cash')
       .reduce((sum, t) => sum + t.amount, 0);
 
-    const commissions = transactions
-      .filter(t => t.transaction_type === 'commission')
+    const advances = transactions
+      .filter(t => t.transaction_type === 'anticipo')
       .reduce((sum, t) => sum + t.amount, 0);
 
     const pending = transactions
       .filter(t => t.status === 'pending')
       .reduce((sum, t) => sum + t.amount, 0);
 
-    return { collections, commissions, pending };
+    return { collections, advances, pending };
   };
 
   const totals = calculateTotals();
 
   const getTransactionTypeColor = (type: string) => {
     const colors: Record<string, string> = {
-      collection: 'text-green-600 bg-green-50',
-      commission: 'text-blue-600 bg-blue-50',
-      advance_deduction: 'text-orange-600 bg-orange-50',
-      fee: 'text-purple-600 bg-purple-50',
-      refund: 'text-red-600 bg-red-50',
+      anticipo: 'text-orange-600 bg-orange-50',
+      cobro_cliente: 'text-green-600 bg-green-50',
+      liquidacion: 'text-purple-600 bg-purple-50',
     };
     return colors[type] || 'text-gray-600 bg-gray-50';
   };
 
-  const getReconciliationStatusColor = (status: string) => {
+  const getRemittanceStatusColor = (status: string) => {
     const colors: Record<string, string> = {
       pending: 'bg-yellow-100 text-yellow-800',
-      in_progress: 'bg-blue-100 text-blue-800',
-      completed: 'bg-green-100 text-green-800',
-      disputed: 'bg-red-100 text-red-800',
+      paid_to_company: 'bg-green-100 text-green-800',
     };
     return colors[status] || 'bg-gray-100 text-gray-800';
   };
@@ -159,10 +181,10 @@ export default function FinanceManagement() {
           <div className="bg-white rounded-lg shadow-sm p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-500 text-sm">Comisiones</p>
-                <p className="text-3xl font-bold text-gray-900">${totals.commissions.toFixed(2)}</p>
+                <p className="text-gray-500 text-sm">Anticipos Emitidos</p>
+                <p className="text-3xl font-bold text-gray-900">${totals.advances.toFixed(2)}</p>
               </div>
-              <Wallet className="w-12 h-12 text-blue-500 opacity-20" />
+              <Wallet className="w-12 h-12 text-orange-500 opacity-20" />
             </div>
           </div>
 
@@ -223,7 +245,7 @@ export default function FinanceManagement() {
                     Estado
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Referencia
+                    Pedido
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                     Fecha
@@ -240,15 +262,15 @@ export default function FinanceManagement() {
                 ) : transactions.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
-                      No hay transacciones
+                      No hay transacciones COD
                     </td>
                   </tr>
                 ) : (
                   transactions.map((transaction) => (
                     <tr key={transaction.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 py-1 text-xs font-medium rounded ${getTransactionTypeColor(transaction.transaction_type)}`}>
-                          {transaction.transaction_type}
+                        <span className={`px-2 py-1 text-xs font-medium rounded ${getTransactionTypeColor(transaction.transaction_type)} uppercase`}>
+                          {transaction.transaction_type.replace('_', ' ')}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -258,17 +280,17 @@ export default function FinanceManagement() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-sm text-gray-600 capitalize">
-                          {transaction.payment_method}
+                          {transaction.payment_method || 'N/A'}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm text-gray-600 capitalize">
+                        <span className={`text-sm capitalize font-medium ${transaction.status === 'reconciled' ? 'text-green-600' : 'text-amber-600'}`}>
                           {transaction.status}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm text-gray-600">
-                          {transaction.reference || '-'}
+                        <span className="text-sm font-mono text-gray-600">
+                          {transaction.order?.order_number || '-'}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -286,26 +308,26 @@ export default function FinanceManagement() {
 
         <div className="bg-white rounded-lg shadow-sm">
           <div className="p-4 border-b border-gray-200">
-            <h2 className="font-semibold text-lg">Conciliaciones Recientes</h2>
+            <h2 className="font-semibold text-lg">Liquidaciones a Repartidores</h2>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Fecha
+                    Período / Fecha
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Cobros
+                    Cobrado
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Anticipado
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                     Comisiones
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Anticipos
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Neto
+                    A Entregar
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                     Estado
@@ -313,43 +335,43 @@ export default function FinanceManagement() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {reconciliations.length === 0 ? (
+                {remittances.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
-                      No hay conciliaciones
+                      No hay liquidaciones
                     </td>
                   </tr>
                 ) : (
-                  reconciliations.map((recon) => (
+                  remittances.map((recon) => (
                     <tr key={recon.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-sm text-gray-900">
-                          {new Date(recon.reconciliation_date).toLocaleDateString()}
+                          {new Date(recon.period_date).toLocaleDateString()}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-sm text-gray-900">
-                          ${recon.total_collections.toFixed(2)}
+                          ${recon.total_collected.toFixed(2)}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-sm text-gray-900">
-                          ${recon.total_commissions.toFixed(2)}
+                          ${recon.total_advances.toFixed(2)}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-sm text-gray-900">
-                          ${recon.advances_deducted.toFixed(2)}
+                          ${recon.driver_commissions.toFixed(2)}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm font-semibold text-gray-900">
-                          ${recon.net_amount.toFixed(2)}
+                        <span className="text-sm font-bold text-blue-600">
+                          ${recon.net_remittance_due.toFixed(2)}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${getReconciliationStatusColor(recon.status)}`}>
-                          {recon.status}
+                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${getRemittanceStatusColor(recon.status)}`}>
+                          {recon.status.replace('_', ' ')}
                         </span>
                       </td>
                     </tr>
@@ -367,7 +389,8 @@ export default function FinanceManagement() {
           onClose={() => setShowReconciliationModal(false)}
           onSuccess={() => {
             setShowReconciliationModal(false);
-            loadReconciliations();
+            loadRemittances();
+            loadTransactions();
           }}
         />
       )}

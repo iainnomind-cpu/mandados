@@ -8,7 +8,8 @@ import OrderCard from '../dispatch/OrderCard';
 import DriverCard from '../dispatch/DriverCard';
 import RoutePanel from '../dispatch/RoutePanel';
 import AssignDriverModal from '../modals/AssignDriverModal';
-import { Order, DriverWithProfile, RouteStop } from '../../types';
+import ProofOfDeliveryModal from '../modals/ProofOfDeliveryModal';
+import { Order, RouteStop, DriverRoute } from '../../types';
 
 export default function DispatchManagement() {
   const { profile } = useAuth();
@@ -18,7 +19,6 @@ export default function DispatchManagement() {
     drivers,
     loading: dispatchLoading,
     autoAssign,
-    error: dispatchError,
     reload: reloadDispatch
   } = useDispatch();
 
@@ -32,22 +32,32 @@ export default function DispatchManagement() {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
+  const [podStop, setPodStop] = useState<{ stop: RouteStop, route: DriverRoute } | null>(null);
+
   const handleAutoAssign = async (order: Order) => {
     if (!profile?.id) return;
     try {
       await autoAssign(order.id, profile.id);
-      showToast('success', `Pedido ${order.order_number} auto-asignado con éxito`);
+      showToast(`Pedido ${order.order_number} auto-asignado con éxito`, 'success');
     } catch (err: any) {
-      showToast('error', err.message || 'Error al auto-asignar');
+      showToast(err.message || 'Error al auto-asignar', 'error');
     }
   };
 
   const handleCompleteStop = async (stop: RouteStop, route: any) => {
+    // Open the POD modal instead of directly completing
+    setPodStop({ stop, route });
+  };
+
+  const handleConfirmPOD = async (stop: RouteStop, route: DriverRoute, podData: any) => {
     try {
-      await completeStop(stop.id, stop.route_id, stop.order_id, route.driver_id);
-      showToast('success', 'Entrega completada y notificada a finanzas');
+      await completeStop(stop.id, route.id, stop.order_id, route.driver_id, podData);
+      showToast('Entrega completada y cobro registrado', 'success');
+      setPodStop(null);
+      reloadRoutes();
+      reloadDispatch();
     } catch (err: any) {
-      showToast('error', err.message || 'Error al completar entrega');
+      throw err; // pass error to modal to display
     }
   };
 
@@ -84,10 +94,8 @@ export default function DispatchManagement() {
                 </div>
               </div>
               <div className="text-center border-l border-gray-100 pl-8">
-                <p className="text-[10px] uppercase tracking-wider font-bold text-gray-400 mb-0.5">Conductores</p>
-                <p className="text-lg font-bold text-gray-900">
-                  {availableDriversCount}<span className="text-gray-300 font-normal"> / {activeDriversCount}</span>
-                </p>
+                <p className="text-[10px] uppercase tracking-wider font-bold text-gray-400 mb-0.5">Conductores Disponibles</p>
+                <p className="text-lg font-bold text-gray-900">{availableDriversCount}</p>
               </div>
               <div className="text-center border-l border-gray-100 pl-8">
                 <p className="text-[10px] uppercase tracking-wider font-bold text-gray-400 mb-0.5">Rutas Activas</p>
@@ -215,19 +223,7 @@ export default function DispatchManagement() {
             </div>
           </div>
 
-          {/* Map View Placeholder */}
-          <div className="h-[250px] bg-slate-900 rounded-2xl shadow-inner border border-gray-800 relative overflow-hidden group">
-            <div className="absolute inset-0 bg-blue-500/10 mix-blend-overlay" />
-            <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center">
-              <div className="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
-                <MapIcon className="w-6 h-6 text-blue-400" />
-              </div>
-              <p className="text-blue-100 font-bold text-sm">Vista de Mapa Global</p>
-              <p className="text-blue-300/60 text-[10px] mt-1">Conecta con Google Maps API para ver conductores en tiempo real</p>
-            </div>
-            {/* Fake map grid */}
-            <div className="absolute inset-0 opacity-10 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle, #3b82f6 1px, transparent 1px)', backgroundSize: '24px 24px' }} />
-          </div>
+
         </div>
       </div>
 
@@ -243,6 +239,16 @@ export default function DispatchManagement() {
             reloadDispatch();
             reloadRoutes();
           }}
+        />
+      )}
+
+      {/* Proof of Delivery Modal */}
+      {podStop && (
+        <ProofOfDeliveryModal
+          stop={podStop.stop}
+          route={podStop.route}
+          onClose={() => setPodStop(null)}
+          onConfirm={handleConfirmPOD}
         />
       )}
     </div>

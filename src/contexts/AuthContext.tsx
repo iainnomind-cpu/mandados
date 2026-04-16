@@ -57,7 +57,33 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .maybeSingle();
 
       if (error) throw error;
-      setProfile(data);
+
+      if (data) {
+        // If profile exists but has no role, default to admin
+        if (!data.role) {
+          const { error: updateErr } = await supabase
+            .from('profiles')
+            .update({ role: 'admin' })
+            .eq('id', userId);
+          if (!updateErr) data.role = 'admin';
+        }
+        setProfile(data);
+      } else {
+        // No profile row exists — create one with admin role
+        const { data: newProfile, error: insertErr } = await supabase
+          .from('profiles')
+          .insert([{ id: userId, full_name: 'Admin', role: 'admin', active: true }])
+          .select()
+          .single();
+
+        if (!insertErr && newProfile) {
+          setProfile(newProfile);
+        } else {
+          console.error('Error creating profile:', insertErr);
+          // Fallback: set an in-memory profile so the app still works
+          setProfile({ id: userId, full_name: 'Admin', role: 'admin', active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() } as Profile);
+        }
+      }
     } catch (error) {
       console.error('Error fetching profile:', error);
     } finally {

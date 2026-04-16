@@ -100,55 +100,113 @@ export async function updateOrderStatus(
 }
 
 // ---------------------------------------------------------------------------
-// Assign order to driver
+// Update order total amount (e.g. WhatsApp orders arriving at $0)
 // ---------------------------------------------------------------------------
-export async function assignOrderToDriver(
+export async function updateOrderAmount(
   orderId: string,
-  driverId: string,
-  assignedBy: string,
-  estimatedDistance?: number,
-  estimatedDuration?: number
+  newAmount: number,
+  userId?: string
 ) {
-  const assignmentData = {
-    order_id: orderId,
-    driver_id: driverId,
-    assigned_by: assignedBy,
-    status: 'assigned' as const,
-    estimated_distance_km: estimatedDistance,
-    estimated_duration_min: estimatedDuration,
-  };
-
-  const { data: assignment, error: assignmentError } = await supabase
-    .from('assignments')
-    .insert([assignmentData])
+  const { data: order, error: orderError } = await supabase
+    .from('orders')
+    .update({ total_amount: newAmount, updated_at: new Date().toISOString() })
+    .eq('id', orderId)
     .select()
     .single();
 
-  if (assignmentError) throw assignmentError;
-
-  // Update the order's status + assigned_driver_id column
-  await supabase
-    .from('orders')
-    .update({ status: 'assigned', assigned_driver_id: driverId })
-    .eq('id', orderId);
-
-  await supabase
-    .from('drivers')
-    .update({ status: 'busy' })
-    .eq('id', driverId);
+  if (orderError) throw orderError;
 
   await supabase.from('order_events').insert([
     {
       order_id: orderId,
-      event_type: 'assigned',
-      description: 'Pedido asignado a conductor',
-      user_id: assignedBy,
-      metadata: { driver_id: driverId, assignment_id: assignment.id },
+      event_type: 'amount_updated',
+      description: `Monto actualizado a $${newAmount.toFixed(2)}`,
+      user_id: userId,
+      metadata: { new_amount: newAmount },
     },
   ]);
 
-  return assignment;
+  return order;
 }
+
+// ---------------------------------------------------------------------------
+// Mark order as delivered (Admin/Dispatcher fallback or direct)
+// ---------------------------------------------------------------------------
+export async function markOrderAsDelivered(orderId: string, userId?: string) {
+  const { data: order, error: fetchError } = await supabase
+    .from('orders')
+    .select('*, driver:assigned_driver_id(id)')
+    .eq('id', orderId)
+    .single();
+
+  if (fetchError || !order) throw fetchError || new Error('Order not found');
+
+  let assignmentId = null;
+  if (order.assigned_driver_id) {
+    const { data: assignment } = await supabase
+      .from('assignments')
+      .select('id')
+      .eq('order_id', orderId)
+      .eq('driver_id', order.assigned_driver_id)
+      .in('status', ['assigned', 'accepted', 'in_progress'])
+      .maybeSingle();
+    if (assignment) assignmentId = assignment.id;
+  }
+
+  const now = new Date().toISOString();
+
+  if (assignmentId) {
+    await supabase
+      .from('assignments')
+      .update({ status: 'completed', delivered_at: now })
+      .eq('id', assignmentId);
+
+    const { data: driver } = await supabase
+      .from('drivers')
+      .select('total_deliveries')
+      .eq('id', order.assigned_driver_id)
+      .single();
+
+    if (driver) {
+      await supabase
+        .from('drivers')
+        .update({ status: 'available', total_deliveries: (driver.total_deliveries || 0) + 1 })
+        .eq('id', order.assigned_driver_id);
+    }
+  }
+
+  await supabase
+    .from('orders')
+    .update({ status: 'delivered', updated_at: now })
+    .eq('id', orderId);
+
+  await supabase.from('order_events').insert([
+    {
+      order_id: orderId,
+      event_type: 'delivered',
+      description: 'Pedido marcado como entregado',
+      user_id: userId,
+      metadata: { assignment_id: assignmentId },
+    },
+  ]);
+
+  if (order.payment_method === 'cash') {
+    await supabase.from('cod_transactions').insert([
+      {
+        order_id: orderId,
+        driver_id: order.assigned_driver_id || null,
+        transaction_type: 'cobro_cliente',
+        amount: order.total_amount ?? 0,
+        payment_method: 'cash',
+        status: 'pending',
+      },
+    ]);
+  }
+}
+
+
+
+
 
 // ---------------------------------------------------------------------------
 // Complete delivery
@@ -207,13 +265,12 @@ export async function completeDelivery(
     .single();
 
   if (order && order.payment_method === 'cash') {
-    await supabase.from('transactions').insert([
+    await supabase.from('cod_transactions').insert([
       {
         order_id: orderId,
-        assignment_id: assignmentId,
         driver_id: driverId,
-        transaction_type: 'collection',
-        amount: order.total_amount + (order.delivery_fee || 0),
+        transaction_type: 'cobro_cliente',
+        amount: order.total_amount ?? 0,
         payment_method: 'cash',
         status: 'pending',
       },
