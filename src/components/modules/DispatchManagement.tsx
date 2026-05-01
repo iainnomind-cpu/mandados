@@ -8,8 +8,8 @@ import OrderCard from '../dispatch/OrderCard';
 import DriverCard from '../dispatch/DriverCard';
 import RoutePanel from '../dispatch/RoutePanel';
 import AssignDriverModal from '../modals/AssignDriverModal';
-import ProofOfDeliveryModal from '../modals/ProofOfDeliveryModal';
-import { Order, RouteStop, DriverRoute } from '../../types';
+import OrderDetailsModal from '../modals/OrderDetailsModal';
+import { Order, OrderWithItems, DriverWithProfile, DriverRoute, RouteStop } from '../../types';
 
 export default function DispatchManagement() {
   const { profile } = useAuth();
@@ -19,6 +19,7 @@ export default function DispatchManagement() {
     drivers,
     loading: dispatchLoading,
     autoAssign,
+    error: dispatchError,
     reload: reloadDispatch
   } = useDispatch();
 
@@ -30,6 +31,7 @@ export default function DispatchManagement() {
   } = useRoutes();
 
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [viewOrder, setViewOrder] = useState<Order | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
   const [podStop, setPodStop] = useState<{ stop: RouteStop, route: DriverRoute } | null>(null);
@@ -45,19 +47,11 @@ export default function DispatchManagement() {
   };
 
   const handleCompleteStop = async (stop: RouteStop, route: any) => {
-    // Open the POD modal instead of directly completing
-    setPodStop({ stop, route });
-  };
-
-  const handleConfirmPOD = async (stop: RouteStop, route: DriverRoute, podData: any) => {
     try {
-      await completeStop(stop.id, route.id, stop.order_id, route.driver_id, podData);
-      showToast('Entrega completada y cobro registrado', 'success');
-      setPodStop(null);
-      reloadRoutes();
-      reloadDispatch();
+      await completeStop(stop.id, stop.route_id, stop.order_id, route.driver_id);
+      showToast('Entrega completada y notificada a finanzas', 'success');
     } catch (err: any) {
-      throw err; // pass error to modal to display
+      showToast(err.message || 'Error al completar entrega', 'error');
     }
   };
 
@@ -162,6 +156,7 @@ export default function DispatchManagement() {
                   order={order}
                   onAssign={setSelectedOrder}
                   onAutoAssign={handleAutoAssign}
+                  onView={setViewOrder}
                 />
               ))
             )}
@@ -204,7 +199,7 @@ export default function DispatchManagement() {
           </div>
         </div>
 
-        {/* Panel 3: Active Routes & Map Placeholder */}
+        {/* Panel 3: Active Routes */}
         <div className="w-[400px] flex flex-col gap-6">
           {/* Active Routes List */}
           <div className="flex-1 min-h-0 flex flex-col bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
@@ -242,13 +237,17 @@ export default function DispatchManagement() {
         />
       )}
 
-      {/* Proof of Delivery Modal */}
-      {podStop && (
-        <ProofOfDeliveryModal
-          stop={podStop.stop}
-          route={podStop.route}
-          onClose={() => setPodStop(null)}
-          onConfirm={handleConfirmPOD}
+      {/* Order Details Modal */}
+      {viewOrder && (
+        <OrderDetailsModal
+          order={viewOrder as OrderWithItems}
+          onClose={() => setViewOrder(null)}
+          onUpdate={() => {
+            setViewOrder(null);
+            reloadDispatch();
+          }}
+          onToast={showToast}
+          onDelete={() => setViewOrder(null)}
         />
       )}
     </div>

@@ -4,11 +4,13 @@ import { supabase } from '../lib/supabase';
 // ─── Types ───
 export interface AppNotification {
     id: string;
-    type: 'new_message' | 'new_order';
+    type: 'new_message' | 'new_order' | 'escalation';
     title: string;
     body: string;
     timestamp: string;
     read: boolean;
+    /** For escalation notifications — the conversation ID to navigate to */
+    conversationId?: string;
 }
 
 interface NotificationContextValue {
@@ -18,12 +20,15 @@ interface NotificationContextValue {
     dismissToast: () => void;
     clearNotifications: () => void;
     markAllRead: () => void;
+    /** Callback for navigating to the chat module (set by App) */
+    onNavigateToChat: ((conversationId?: string) => void) | null;
+    setOnNavigateToChat: (fn: (conversationId?: string) => void) => void;
 }
 
 const NotificationContext = createContext<NotificationContextValue | null>(null);
 
 // ─── Sound helper (Web Audio API — no files needed) ───
-function playNotificationSound(type: 'message' | 'order') {
+function playNotificationSound(type: 'message' | 'order' | 'escalation') {
     try {
         const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
         const oscillator = ctx.createOscillator();
@@ -40,6 +45,24 @@ function playNotificationSound(type: 'message' | 'order') {
             gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.25);
             oscillator.start(ctx.currentTime);
             oscillator.stop(ctx.currentTime + 0.3);
+        } else if (type === 'escalation') {
+            // Urgent alarm — 3 loud beeps at high frequency
+            oscillator.type = 'square';
+            gainNode.gain.setValueAtTime(0.5, ctx.currentTime);
+            // Beep 1
+            oscillator.frequency.setValueAtTime(1200, ctx.currentTime);
+            gainNode.gain.setValueAtTime(0.5, ctx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+            // Beep 2
+            gainNode.gain.setValueAtTime(0.5, ctx.currentTime + 0.2);
+            oscillator.frequency.setValueAtTime(1400, ctx.currentTime + 0.2);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.35);
+            // Beep 3
+            gainNode.gain.setValueAtTime(0.5, ctx.currentTime + 0.4);
+            oscillator.frequency.setValueAtTime(1600, ctx.currentTime + 0.4);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.6);
+            oscillator.start(ctx.currentTime);
+            oscillator.stop(ctx.currentTime + 0.65);
         } else {
             oscillator.frequency.setValueAtTime(523, ctx.currentTime);
             oscillator.frequency.setValueAtTime(659, ctx.currentTime + 0.1);
@@ -82,7 +105,9 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
         setNotifications((prev) => [notification, ...prev].slice(0, 50));
         setLatestToast(notification);
-        playNotificationSound(n.type === 'new_message' ? 'message' : 'order');
+        playNotificationSound(
+            n.type === 'escalation' ? 'escalation' : n.type === 'new_message' ? 'message' : 'order'
+        );
 
         if (document.hidden) {
             showBrowserNotification(n.title, n.body);
@@ -97,6 +122,12 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     const clearNotifications = useCallback(() => setNotifications([]), []);
     const markAllRead = useCallback(() => {
         setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+    }, []);
+
+    // Navigation callback for escalation toasts
+    const [onNavigateToChat, setOnNavigateToChatState] = useState<((conversationId?: string) => void) | null>(null);
+    const setOnNavigateToChat = useCallback((fn: (conversationId?: string) => void) => {
+        setOnNavigateToChatState(() => fn);
     }, []);
 
     const unreadCount = notifications.filter((n) => !n.read).length;
@@ -115,8 +146,9 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
             readyRef.current = true;
         }, 3000);
 
-        const channel = supabase
-            .channel('global-notifications')
+        // ── Channel 1: Customer messages (Realtime with column filter) ──
+        const msgsChannel = supabase
+            .channel('global-chat-messages')
             .on(
                 'postgres_changes',
                 {
@@ -131,10 +163,15 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
                     addNotificationRef.current({
                         type: 'new_message',
                         title: '💬 Nuevo mensaje',
-                        body: msg.message?.substring(0, 120) || 'Mensaje recibido',
+                        body: (msg.message as string)?.substring(0, 120) || 'Mensaje recibido',
                     });
                 }
             )
+            .subscribe();
+
+        // ── Channel 2: New orders ──
+        const ordersChannel = supabase
+            .channel('global-orders')
             .on(
                 'postgres_changes',
                 {
@@ -156,7 +193,63 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
 
         return () => {
             clearTimeout(readyTimer);
-            supabase.removeChannel(channel);
+            supabase.removeChannel(msgsChannel);
+            supabase.removeChannel(ordersChannel);
+        };
+    }, []);
+
+    // ─── Polling for escalations (bulletproof — no Realtime dependency) ───
+    const notifiedEscalationsRef = useRef<Set<string>>(new Set());
+
+    useEffect(() => {
+        const catLabels: Record<string, string> = {
+            pago: '💳 Problema de pago',
+            queja: '😤 Queja / Reclamo',
+            producto_danado: '📦 Producto dañado',
+            solicitud_especial: '✨ Solicitud especial',
+            otro: '❓ Requiere atención',
+        };
+
+        const checkEscalations = async () => {
+            if (!readyRef.current) return;
+            try {
+                // Look for escalations created in the last 2 minutes
+                const cutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+                const { data } = await supabase
+                    .from('chat_conversations')
+                    .select('id, escalation_reason, escalation_category')
+                    .not('escalation_reason', 'is', null)
+                    .gte('escalated_at', cutoff);
+
+                if (!data) return;
+
+                for (const conv of data) {
+                    // Only notify once per conversation escalation
+                    if (notifiedEscalationsRef.current.has(conv.id)) continue;
+                    notifiedEscalationsRef.current.add(conv.id);
+
+                    addNotificationRef.current({
+                        type: 'escalation',
+                        title: '🚨 ¡Requiere atención humana!',
+                        body: `${catLabels[conv.escalation_category] || '❓ Requiere atención'}: ${conv.escalation_reason}`,
+                        conversationId: conv.id,
+                    });
+                }
+            } catch (_) {
+                // Ignore errors — escalation_columns may not exist yet
+            }
+        };
+
+        // Wait 4 seconds before starting to poll (after readyRef is true)
+        let intervalId: ReturnType<typeof setInterval> | null = null;
+        const startDelay = setTimeout(() => {
+            checkEscalations(); // immediate first check
+            intervalId = setInterval(checkEscalations, 15000); // then every 15s
+        }, 4000);
+
+        return () => {
+            clearTimeout(startDelay);
+            if (intervalId) clearInterval(intervalId);
         };
     }, []);
 
@@ -169,6 +262,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
                 dismissToast,
                 clearNotifications,
                 markAllRead,
+                onNavigateToChat,
+                setOnNavigateToChat,
             }}
         >
             {children}

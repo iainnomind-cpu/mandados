@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { NotificationProvider } from './contexts/NotificationContext';
 import Auth from './components/Auth';
@@ -10,11 +10,25 @@ import DispatchManagement from './components/modules/DispatchManagement';
 import FinanceManagement from './components/modules/FinanceManagement';
 import FleetManagement from './components/modules/FleetManagement';
 import ZoneManagement from './components/modules/ZoneManagement';
+import BusinessHoursConfig from './components/modules/BusinessHoursConfig';
 import GlobalNotifications from './components/GlobalNotifications';
 
 function AppContent() {
   const { user, loading } = useAuth();
   const [currentModule, setCurrentModule] = useState('dashboard');
+  const [targetConversationId, setTargetConversationId] = useState<string | undefined>(undefined);
+
+  // Listen for navigation events dispatched by GlobalNotifications
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const convId = (e as CustomEvent<string | undefined>).detail;
+      setCurrentModule('chatbot');
+      setTargetConversationId(convId);
+      setTimeout(() => setTargetConversationId(undefined), 2000);
+    };
+    window.addEventListener('erp:navigate-to-chat', handler);
+    return () => window.removeEventListener('erp:navigate-to-chat', handler);
+  }, []);
 
   if (loading) {
     return (
@@ -33,7 +47,7 @@ function AppContent() {
       case 'dashboard':
         return <Dashboard />;
       case 'chatbot':
-        return <Chatbot />;
+        return <Chatbot initialConversationId={targetConversationId} />;
       case 'orders':
         return <OrderManagement />;
       case 'dispatch':
@@ -44,6 +58,8 @@ function AppContent() {
         return <FleetManagement />;
       case 'zones':
         return <ZoneManagement />;
+      case 'settings':
+        return <BusinessHoursConfig />;
       default:
         return <Dashboard />;
     }

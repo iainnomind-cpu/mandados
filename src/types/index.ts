@@ -212,6 +212,10 @@ export interface ChatConversation {
   last_message_at?: string;
   unread_count?: number;
   bot_paused?: boolean;
+  /** Escalation fields */
+  escalation_reason?: string;
+  escalation_category?: 'pago' | 'queja' | 'producto_danado' | 'solicitud_especial' | 'otro';
+  escalated_at?: string;
 }
 
 export interface ChatMessage {

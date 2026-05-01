@@ -44,7 +44,11 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
 
   // Auto-calculate total
   const itemsTotal = useMemo(
-    () => items.reduce((s, it) => s + it.quantity * (parseFloat(it.unit_price as any) || 0), 0),
+    () => items.reduce((s, it) => {
+      const rawData = String(it.unit_price || '').replace(/,/g, '.').replace(/[^0-9.]/g, '');
+      const price = parseFloat(rawData) || 0;
+      return s + (it.quantity * price);
+    }, 0),
     [items]
   );
 
@@ -108,7 +112,10 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
           delivery_fee: deliveryFee,
           total_amount: totalAmount,
         } as Parameters<typeof createOrderWithItems>[0],
-        validItems.map(it => ({ ...it, unit_price: parseFloat(it.unit_price as any) || 0 }))
+        validItems.map(it => {
+          const rawData = String(it.unit_price || '').replace(/,/g, '.').replace(/[^0-9.]/g, '');
+          return { ...it, unit_price: parseFloat(rawData) || 0 };
+        })
       );
 
       onSuccess('Pedido creado exitosamente');
@@ -257,15 +264,16 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
             {/* Column headers */}
             <div className="grid grid-cols-12 gap-2 text-xs font-medium text-gray-500 mb-1 px-1">
               <span className="col-span-5">Producto</span>
-              <span className="col-span-2 text-center">Cant.</span>
-              <span className="col-span-2 text-right">P. Unit.</span>
+              <span className="col-span-2 text-center">Cantidad</span>
+              <span className="col-span-2 text-right">Precio Unit.</span>
               <span className="col-span-2 text-right">Subtotal</span>
               <span className="col-span-1" />
             </div>
 
             <div className="space-y-2">
               {items.map((item, idx) => {
-                const priceNum = parseFloat(item.unit_price as any) || 0;
+                const rawPrice = String(item.unit_price || '').replace(/,/g, '.').replace(/[^0-9.]/g, '');
+                const priceNum = parseFloat(rawPrice) || 0;
                 const subtotal = item.quantity * priceNum;
                 return (
                   <div key={idx} className="grid grid-cols-12 gap-2 items-center">
@@ -295,17 +303,17 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
                       className="col-span-2 px-2 py-1.5 text-sm border border-gray-300 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={item.unit_price}
+                      type="text"
+                      inputMode="decimal"
+                      value={item.unit_price === 0 ? '' : item.unit_price}
                       placeholder="0.00"
-                      onChange={(e) =>
-                        updateItem(idx, { unit_price: e.target.value as unknown as number })
-                      }
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^0-9.,]/g, '');
+                        updateItem(idx, { unit_price: val as unknown as number });
+                      }}
                       className="col-span-2 px-2 py-1.5 text-sm border border-gray-300 rounded-lg text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
-                    <span className="col-span-2 text-right text-sm font-medium text-gray-700 pr-1">
+                    <span className="col-span-2 text-right text-sm font-medium text-gray-700 pr-1 notranslate" translate="no">
                       ${subtotal.toFixed(2)}
                     </span>
                     <button
@@ -326,7 +334,7 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
               <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 min-w-[200px]">
                 <div className="flex justify-between text-xs text-gray-500 mb-1">
                   <span>Subtotal:</span>
-                  <span>${itemsTotal.toFixed(2)}</span>
+                  <span className="notranslate" translate="no">${itemsTotal.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between items-center text-xs text-gray-500 mb-2 border-b pb-1">
                   <span>Envío:</span>
@@ -344,7 +352,7 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
                 </div>
                 <div className="flex justify-between items-baseline">
                   <span className="text-sm font-bold text-gray-700 mr-2">Total:</span>
-                  <p className="text-2xl font-bold text-gray-900">${totalAmount.toFixed(2)}</p>
+                  <p className="text-2xl font-bold text-gray-900 notranslate" translate="no">${totalAmount.toFixed(2)}</p>
                 </div>
               </div>
             </div>
