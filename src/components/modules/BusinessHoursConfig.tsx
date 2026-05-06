@@ -5,6 +5,7 @@ import {
   Settings, ChevronDown
 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
+import WhatsAppTemplates from './WhatsAppTemplates';
 
 // ─── Types ───
 interface DaySchedule {
@@ -601,6 +602,9 @@ export default function BusinessHoursConfig() {
             </p>
           </div>
         )}
+
+        {/* ── WhatsApp Templates Section ── */}
+        <WhatsAppTemplates />
 
       </div>
     </div>
