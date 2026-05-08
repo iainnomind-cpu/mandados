@@ -34,6 +34,8 @@ export interface Profile {
 export interface Driver {
   id: string;
   user_id?: string;
+  full_name?: string | null;
+  phone?: string | null;
   license_number?: string;
   license_expiry?: string;
   vehicle_type?: string;
@@ -74,6 +76,16 @@ export interface Address {
     lng: number;
   };
   reference?: string;
+}
+
+export interface DeliveryZone {
+  id: string;
+  name: string;
+  commission: number;
+  polygon: { lat: number; lng: number }[];
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Order {

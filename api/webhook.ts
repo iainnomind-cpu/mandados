@@ -567,6 +567,22 @@ Responde SOLO con el formato indicado, sin explicaciones adicionales.`,
 }
 
 // ─────────────────────────────────────────────────────────
+// Get last customer message timestamp for a conversation
+// ─────────────────────────────────────────────────────────
+async function getLastMessageTime(conversationId: string): Promise<string | null> {
+  const messages = await supabaseGet(
+    'chat_messages',
+    `conversation_id=eq.${conversationId}&sender_type=eq.customer&select=created_at&order=created_at.desc&limit=1`
+  );
+  return messages.length > 0 ? messages[0].created_at : null;
+}
+
+// ─────────────────────────────────────────────────────────
+// Inactivity timeout (minutes)
+// ─────────────────────────────────────────────────────────
+const INACTIVITY_TIMEOUT_MIN = 30;
+
+// ─────────────────────────────────────────────────────────
 // Main message processing logic
 // ─────────────────────────────────────────────────────────
 async function processIncomingMessage(
@@ -609,27 +625,88 @@ async function processIncomingMessage(
 
     if (conversations.length > 0) {
       conversation = conversations[0];
-      if (conversation.channel !== channelLabel) {
-        await supabaseUpdate('chat_conversations', conversation.id, { channel: channelLabel });
+
+      // Check inactivity timeout even for active conversations
+      const lastMsgTime = await getLastMessageTime(conversation.id);
+      const minsSinceMsg = lastMsgTime
+        ? (Date.now() - new Date(lastMsgTime).getTime()) / 60000
+        : (Date.now() - new Date(conversation.started_at).getTime()) / 60000;
+
+      if (minsSinceMsg > INACTIVITY_TIMEOUT_MIN) {
+        // Timeout: abandon this conversation and create a fresh one
+        console.log(`⏰ Conversación activa ${conversation.id} expirada (${minsSinceMsg.toFixed(1)} min inactiva)`);
+        await supabaseUpdate('chat_conversations', conversation.id, {
+          status: 'abandoned',
+          ended_at: new Date().toISOString(),
+        });
+        conversation = await supabaseInsert('chat_conversations', {
+          customer_id: customer.id,
+          channel: channelLabel,
+          status: 'active',
+          bot_paused: false,
+        });
+        if (!conversation) throw new Error('Failed to create conversation after timeout');
+        console.log('💬 Nueva conversación (timeout 30min):', conversation.id);
+      } else {
+        // Still within timeout — continue with existing conversation
+        if (conversation.channel !== channelLabel) {
+          await supabaseUpdate('chat_conversations', conversation.id, { channel: channelLabel });
+        }
+        console.log('💬 Conversación activa existente:', conversation.id, `(${minsSinceMsg.toFixed(1)} min desde último msg)`);
       }
-      console.log('💬 Conversación activa existente:', conversation.id);
     } else {
-      // No active conversation — look for the most recent completed/abandoned one to reactivate
+      // No active conversation — look for the most recent one
       const recentConvs = await supabaseGet(
         'chat_conversations',
         `customer_id=eq.${customer.id}&select=*&order=started_at.desc&limit=1`
       );
 
       if (recentConvs.length > 0) {
-        // Reactivate the most recent conversation
-        conversation = recentConvs[0];
-        await supabaseUpdate('chat_conversations', conversation.id, {
-          status: 'active',
-          ended_at: null,
-          channel: channelLabel,
-        });
-        conversation.status = 'active';
-        console.log('💬 Conversación reactivada:', conversation.id, '(era', recentConvs[0].status + ')');
+        const lastConv = recentConvs[0];
+
+        if (lastConv.status === 'completed' || lastConv.status === 'abandoned') {
+          // COMPLETED/ABANDONED → Always create a fresh conversation (clean slate)
+          conversation = await supabaseInsert('chat_conversations', {
+            customer_id: customer.id,
+            channel: channelLabel,
+            status: 'active',
+            bot_paused: false,
+          });
+          if (!conversation) throw new Error('Failed to create conversation post-completion');
+          console.log('💬 Nueva conversación (post-finalización):', conversation.id, '(anterior era', lastConv.status + ')');
+        } else {
+          // Other status (shouldn't happen, but handle gracefully) — check timeout
+          const lastMsgTime = await getLastMessageTime(lastConv.id);
+          const minsSinceMsg = lastMsgTime
+            ? (Date.now() - new Date(lastMsgTime).getTime()) / 60000
+            : Infinity;
+
+          if (minsSinceMsg > INACTIVITY_TIMEOUT_MIN) {
+            // Timeout → abandon old and create new
+            await supabaseUpdate('chat_conversations', lastConv.id, {
+              status: 'abandoned',
+              ended_at: new Date().toISOString(),
+            });
+            conversation = await supabaseInsert('chat_conversations', {
+              customer_id: customer.id,
+              channel: channelLabel,
+              status: 'active',
+              bot_paused: false,
+            });
+            if (!conversation) throw new Error('Failed to create conversation after timeout');
+            console.log('💬 Nueva conversación (timeout):', conversation.id);
+          } else {
+            // Resume — within timeout
+            conversation = lastConv;
+            await supabaseUpdate('chat_conversations', lastConv.id, {
+              status: 'active',
+              ended_at: null,
+              channel: channelLabel,
+            });
+            conversation.status = 'active';
+            console.log('💬 Conversación retomada:', conversation.id);
+          }
+        }
       } else {
         // No conversation at all — create a new one
         conversation = await supabaseInsert('chat_conversations', {
@@ -671,12 +748,25 @@ async function processIncomingMessage(
     );
     console.log(`📜 Historial: ${dbMessages.length} mensajes previos`);
 
+    // 5b. Filter out messages from previous orders within the same conversation
+    //     If there's a [PEDIDO COMPLETADO] marker, only use messages AFTER the last one
+    let relevantMessages = dbMessages;
+    const lastCompletedIdx = dbMessages.reduce((lastIdx: number, msg: any, idx: number) => {
+      if (msg.message && msg.message.includes('[PEDIDO COMPLETADO]')) return idx;
+      return lastIdx;
+    }, -1);
+
+    if (lastCompletedIdx >= 0) {
+      relevantMessages = dbMessages.slice(lastCompletedIdx + 1);
+      console.log(`🧹 Historial filtrado: ${dbMessages.length} → ${relevantMessages.length} mensajes (descartados ${lastCompletedIdx + 1} anteriores al último pedido completado)`);
+    }
+
     // 6. Build OpenAI messages array
     const openaiMessages: OAIMessage[] = [
       { role: 'system', content: systemPrompt },
     ];
 
-    for (const msg of dbMessages) {
+    for (const msg of relevantMessages) {
       openaiMessages.push({
         role: msg.sender_type === 'customer' ? 'user' : 'assistant',
         content: msg.message,

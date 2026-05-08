@@ -9,6 +9,8 @@ interface NewDriverModalProps {
 
 export default function NewDriverModal({ onClose, onSuccess }: NewDriverModalProps) {
   const [formData, setFormData] = useState({
+    full_name: '',
+    phone: '',
     vehiclePlate: '',
     vehicleType: '',
     licenseNumber: '',
@@ -23,13 +25,16 @@ export default function NewDriverModal({ onClose, onSuccess }: NewDriverModalPro
     setError('');
 
     try {
+      // Create the driver record with full_name directly
       const { error: driverError } = await supabase
         .from('drivers')
         .insert([
           {
+            full_name: formData.full_name,
+            phone: formData.phone,
             vehicle_plate: formData.vehiclePlate,
-            vehicle_type: formData.vehicleType,
-            license_number: formData.licenseNumber,
+            vehicle_type: formData.vehicleType || null,
+            license_number: formData.licenseNumber || null,
             license_expiry: formData.licenseExpiry || null,
             status: 'offline',
             rating: 5.00,
@@ -37,7 +42,10 @@ export default function NewDriverModal({ onClose, onSuccess }: NewDriverModalPro
           },
         ]);
 
-      if (driverError) throw driverError;
+      if (driverError) {
+        console.error('Error creating driver:', driverError);
+        throw new Error('Error al crear el registro del conductor: ' + driverError.message);
+      }
 
       onSuccess();
     } catch (err) {
@@ -67,6 +75,19 @@ export default function NewDriverModal({ onClose, onSuccess }: NewDriverModalPro
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
+              Nombre Completo
+            </label>
+            <input
+              type="text"
+              value={formData.full_name}
+              onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
               Placa del Vehículo
             </label>
             <input
@@ -80,13 +101,26 @@ export default function NewDriverModal({ onClose, onSuccess }: NewDriverModalPro
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
+              Número de Teléfono
+            </label>
+            <input
+              type="tel"
+              value={formData.phone}
+              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Ej: 614 123 4567"
+              required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
               Tipo de Vehículo
             </label>
             <select
               value={formData.vehicleType}
               onChange={(e) => setFormData({ ...formData, vehicleType: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
             >
               <option value="">Selecciona un tipo</option>
               <option value="Moto">Moto</option>
@@ -105,7 +139,6 @@ export default function NewDriverModal({ onClose, onSuccess }: NewDriverModalPro
               value={formData.licenseNumber}
               onChange={(e) => setFormData({ ...formData, licenseNumber: e.target.value })}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
             />
           </div>
 

@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import {
   Package, Plus, Search, Filter, Eye, Trash2,
   UserCheck, CheckCircle, XCircle, Clock, Truck,
-  DollarSign, TrendingUp,
+  DollarSign, TrendingUp, Calendar,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useOrders } from '../../hooks/useOrders';
@@ -137,6 +137,7 @@ export default function OrderManagement() {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [dateFilter, setDateFilter] = useState<'today' | 'all'>('today');
   const [showNewModal, setShowNewModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<OrderWithItems | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<OrderWithItems | null>(null);
@@ -150,12 +151,11 @@ export default function OrderManagement() {
   const stats = useMemo(() => {
     const total = orders.length;
     const pending = orders.filter((o) => o.status === 'pending').length;
-    const completedToday = orders.filter(
+    const deliveredToday = orders.filter(
       (o) => o.status === 'delivered' && new Date(o.created_at) >= today
-    ).length;
-    const revenueToday = orders
-      .filter((o) => new Date(o.created_at) >= today)
-      .reduce((s, o) => s + (o.total_amount || 0), 0);
+    );
+    const completedToday = deliveredToday.length;
+    const revenueToday = deliveredToday.reduce((s, o) => s + (o.total_amount || 0), 0);
     return { total, pending, completedToday, revenueToday };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orders]);
@@ -170,9 +170,10 @@ export default function OrderManagement() {
         (o.order_number ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (o.customer_phone ?? '').includes(searchTerm);
       const matchStatus = statusFilter === 'all' || o.status === statusFilter;
-      return matchSearch && matchStatus;
+      const matchDate = dateFilter === 'all' || new Date(o.created_at) >= today;
+      return matchSearch && matchStatus && matchDate;
     });
-  }, [orders, searchTerm, statusFilter]);
+  }, [orders, searchTerm, statusFilter, dateFilter]);
 
   // ---------- Handlers -------------------------------------------------------
 
@@ -241,6 +242,7 @@ export default function OrderManagement() {
               value={`$${stats.revenueToday.toFixed(2)}`}
               icon={DollarSign}
               color="bg-teal-600"
+              subtitle={`${stats.completedToday} pedido${stats.completedToday !== 1 ? 's' : ''} finalizado${stats.completedToday !== 1 ? 's' : ''}`}
             />
           </div>
         )}
@@ -257,6 +259,17 @@ export default function OrderManagement() {
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+            </div>
+            <div className="flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-gray-400 flex-shrink-0" />
+              <select
+                value={dateFilter}
+                onChange={(e) => setDateFilter(e.target.value as 'today' | 'all')}
+                className="text-sm px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="today">Pedidos de hoy</option>
+                <option value="all">Histórico (todos)</option>
+              </select>
             </div>
             <div className="flex items-center gap-2">
               <Filter className="w-4 h-4 text-gray-400 flex-shrink-0" />
@@ -346,8 +359,8 @@ export default function OrderManagement() {
                 ) : (
                   filtered.map((order) => {
                     const driverName =
-                      (order.driver as { profiles?: { full_name?: string } })?.profiles?.full_name ??
-                      order.driver?.vehicle_plate ??
+                      (order.driver as { profiles?: { full_name?: string }; full_name?: string })?.profiles?.full_name ??
+                      (order.driver as { full_name?: string })?.full_name ??
                       '—';
                     return (
                       <tr key={order.id} className="hover:bg-gray-50 transition-colors">
@@ -427,6 +440,7 @@ export default function OrderManagement() {
           onSuccess={(msg) => {
             setShowNewModal(false);
             showToast(msg ?? 'Pedido creado exitosamente', 'success');
+            reload();
           }}
           onError={(msg) => showToast(msg ?? 'Error al crear pedido', 'error')}
         />

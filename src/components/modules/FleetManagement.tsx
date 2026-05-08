@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Users, Plus, Search, UserCheck, UserX } from 'lucide-react';
+import { Users, Plus, Search, UserCheck, UserX, Phone } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { Driver } from '../../types';
 import NewDriverModal from '../modals/NewDriverModal';
@@ -43,9 +43,12 @@ export default function FleetManagement() {
     }
 
     if (searchTerm) {
+      const term = searchTerm.toLowerCase();
       filtered = filtered.filter(driver =>
-        (driver.vehicle_plate?.toLowerCase().includes(searchTerm.toLowerCase())) ||
-        (driver.vehicle_type?.toLowerCase().includes(searchTerm.toLowerCase()))
+        (driver.vehicle_plate?.toLowerCase().includes(term)) ||
+        (driver.vehicle_type?.toLowerCase().includes(term)) ||
+        (driver.full_name?.toLowerCase().includes(term)) ||
+        (driver.phone?.toLowerCase().includes(term))
       );
     }
 
@@ -139,7 +142,7 @@ export default function FleetManagement() {
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                 <input
                   type="text"
-                  placeholder="Buscar por placa o tipo de vehículo..."
+                  placeholder="Buscar por nombre, placa o tipo de vehículo..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
                   className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -166,6 +169,9 @@ export default function FleetManagement() {
               <thead className="bg-gray-50 border-b border-gray-200">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Nombre
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                     Placa
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
@@ -178,7 +184,7 @@ export default function FleetManagement() {
                     Estado
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Rating
+                    Teléfono
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                     Entregas
@@ -205,6 +211,11 @@ export default function FleetManagement() {
                   filteredDrivers.map((driver) => (
                     <tr key={driver.id} className="hover:bg-gray-50">
                       <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="font-bold text-gray-900">
+                          {driver.full_name || 'Sin nombre'}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
                         <span className="font-medium text-gray-900">
                           {driver.vehicle_plate || 'Sin placa'}
                         </span>
@@ -225,9 +236,12 @@ export default function FleetManagement() {
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm text-gray-900">
-                          ⭐ {driver.rating.toFixed(1)}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <Phone className="w-4 h-4 text-gray-400" />
+                          <span className="text-sm text-gray-900">
+                            {driver.phone || 'Sin teléfono'}
+                          </span>
+                        </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-sm text-gray-900">

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { X, User, Truck, ShieldCheck, AlertCircle, RefreshCcw } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { X, User, Truck, ShieldCheck, AlertCircle, RefreshCcw, Search } from 'lucide-react';
 import { manualAssignOrder } from '../../lib/dispatchSync';
 import { Order, DriverWithProfile } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
@@ -16,10 +16,21 @@ export default function AssignDriverModal({ order, drivers, onClose, onSuccess }
   const { user } = useAuth();
   const { showToast } = useToast();
   const [selectedDriverId, setSelectedDriverId] = useState('');
+  const [anticipoAmount, setAnticipoAmount] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const availableDrivers = drivers.filter(d => d.status === 'available');
+  const availableDrivers = useMemo(() => {
+    return drivers
+      .filter((d) => d.status === 'available' || d.status === 'busy')
+      .filter((d) => {
+        if (!searchQuery) return true;
+        const nameProfile = d.profiles?.full_name?.toLowerCase() || '';
+        const nameDriver = d.full_name?.toLowerCase() || '';
+        return nameProfile.includes(searchQuery.toLowerCase()) || nameDriver.includes(searchQuery.toLowerCase());
+      });
+  }, [drivers, searchQuery]);
 
   const handleAssign = async () => {
     if (!selectedDriverId) {
@@ -36,10 +47,18 @@ export default function AssignDriverModal({ order, drivers, onClose, onSuccess }
     setError('');
 
     try {
+      const anticipoVal = anticipoAmount ? parseFloat(anticipoAmount) : 0;
+      if (anticipoAmount && (isNaN(anticipoVal) || anticipoVal < 0)) {
+        setError('El monto de anticipo no es válido');
+        setLoading(false);
+        return;
+      }
+
       await manualAssignOrder(
         order.id,
         selectedDriverId,
-        user.id
+        user.id,
+        anticipoVal
       );
 
       showToast(`Pedido ${order.order_number} asignado correctamente`, 'success');
@@ -100,11 +119,27 @@ export default function AssignDriverModal({ order, drivers, onClose, onSuccess }
               <Truck className="w-4 h-4 text-blue-500" />
               Seleccionar Conductor
             </label>
+
+            <div className="relative mb-3">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
+                <Search className="w-4 h-4" />
+              </span>
+              <input
+                type="text"
+                placeholder="Buscar por nombre..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              />
+            </div>
+
             {availableDrivers.length === 0 ? (
               <div className="text-center p-8 bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
                 <Truck className="w-10 h-10 text-slate-300 mx-auto mb-2 opacity-50" />
-                <p className="text-sm font-medium text-slate-400">No hay conductores disponibles</p>
-                <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-widest">Espera a que alguien se libere</p>
+                <p className="text-sm font-medium text-slate-400">
+                  {searchQuery ? 'No se encontraron conductores' : 'No hay conductores disponibles'}
+                </p>
+                {!searchQuery && <p className="text-[10px] text-slate-400 mt-1 uppercase tracking-widest">Espera a que alguien se libere</p>}
               </div>
             ) : (
               <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-200">
@@ -142,6 +177,25 @@ export default function AssignDriverModal({ order, drivers, onClose, onSuccess }
                 ))}
               </div>
             )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-2 ml-1">
+              Registro de Anticipo (Opcional)
+            </label>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="0.00"
+                value={anticipoAmount}
+                onChange={(e) => setAnticipoAmount(e.target.value)}
+                className="w-full pl-8 pr-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-2xl focus:bg-white focus:border-blue-500 focus:outline-none transition-all font-medium"
+              />
+            </div>
+            <p className="text-xs text-slate-500 mt-2 ml-1">Ingresa el monto si el repartidor adelantó efectivo para esta orden.</p>
           </div>
 
           <div className="flex gap-4 pt-4">

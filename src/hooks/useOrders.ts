@@ -4,9 +4,10 @@ import { Order, OrderItemDraft, OrderWithItems } from '../types';
 import {
     createOrderWithItems,
     updateOrderStatus,
-    assignOrderToDriver,
+    updateOrderAmount,
     deleteOrderById,
 } from '../lib/orderSync';
+import { manualAssignOrder } from '../lib/dispatchSync';
 import { useRealtimeOrders } from './useRealtimeSync';
 
 interface UseOrdersOptions {
@@ -27,6 +28,7 @@ interface UseOrdersReturn {
     ) => Promise<void>;
     changeStatus: (orderId: string, status: string, userId?: string) => Promise<void>;
     assignDriver: (orderId: string, driverId: string, assignedById: string) => Promise<void>;
+    updateAmount: (orderId: string, amount: number, userId?: string) => Promise<void>;
     removeOrder: (orderId: string) => Promise<void>;
 }
 
@@ -106,7 +108,15 @@ export function useOrders(options: UseOrdersOptions = {}): UseOrdersReturn {
 
     const assignDriver = useCallback(
         async (orderId: string, driverId: string, assignedById: string) => {
-            await assignOrderToDriver(orderId, driverId, assignedById);
+            await manualAssignOrder(orderId, driverId, assignedById);
+            await load();
+        },
+        [load]
+    );
+
+    const updateAmount = useCallback(
+        async (orderId: string, amount: number, userId?: string) => {
+            await updateOrderAmount(orderId, amount, userId);
             await load();
         },
         [load]
@@ -128,6 +138,7 @@ export function useOrders(options: UseOrdersOptions = {}): UseOrdersReturn {
         createOrder,
         changeStatus,
         assignDriver,
+        updateAmount,
         removeOrder,
     };
 }

@@ -21,7 +21,7 @@ export default function DriverCard({ driver, onSelect, selected, compact }: Driv
     const st = STATUS_CONFIG[driver.status] ?? STATUS_CONFIG.offline;
     const loadPct = Math.min(100, ((driver.active_load_count ?? 0) / MAX_LOAD) * 100);
     const loadColor = loadPct >= 80 ? 'bg-red-500' : loadPct >= 50 ? 'bg-amber-400' : 'bg-emerald-500';
-    const driverName = driver.profiles?.full_name ?? driver.vehicle_plate ?? 'Conductor';
+    const driverName = driver.profiles?.full_name ?? driver.full_name ?? driver.vehicle_plate ?? 'Conductor';
     const hasGps = driver.current_lat != null && driver.current_lng != null;
     const isAvailable = driver.status === 'available';
 
@@ -85,14 +85,10 @@ export default function DriverCard({ driver, onSelect, selected, compact }: Driv
 
             {/* Stats */}
             {!compact && (
-                <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-gray-50">
+                <div className="mt-3 pt-3 border-t border-gray-50 flex justify-center">
                     <div className="text-center">
                         <p className="text-xs text-gray-400">Entregas</p>
                         <p className="font-bold text-gray-700">{driver.total_deliveries ?? 0}</p>
-                    </div>
-                    <div className="text-center">
-                        <p className="text-xs text-gray-400">Rating</p>
-                        <p className="font-bold text-gray-700">⭐ {(driver.rating ?? 0).toFixed(1)}</p>
                     </div>
                 </div>
             )}
