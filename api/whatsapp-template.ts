@@ -29,7 +29,7 @@ function countPositionalVariables(text: string): number {
  * Meta requires at least one example per variable when creating templates.
  */
 function generateExampleValues(count: number): string[] {
-  const defaults = ['Juan', '#12345', '$199.00', 'Calle Principal 42', '30 min', 'Mandados ERP'];
+  const defaults = ['Juan Pérez', 'Pollo asado x1', 'Pizza Pomodori, Centro', 'Vigía 39, Col. Hacienda', '$45.00', 'ejemplo_6'];
   return Array.from({ length: count }, (_, i) => defaults[i] || `ejemplo_${i + 1}`);
 }
 

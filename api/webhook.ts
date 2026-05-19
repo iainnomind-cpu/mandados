@@ -365,6 +365,173 @@ function generateOrderNumber(): string {
 }
 
 // ─────────────────────────────────────────────────────────
+// Classify order as 'sencillo' ($35) or 'complejo' ($45)
+// based on keyword analysis of the order text.
+// ─────────────────────────────────────────────────────────
+type ServiceType = 'sencillo' | 'complejo';
+
+function classifyServiceType(itemsText: string): ServiceType {
+  const text = itemsText.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  // ── Complex keywords: shopping lists, multiple items ──
+  const complexKeywords = [
+    'lista', 'super', 'supermercado', 'mandado', 'comprar',
+    'tienda', 'mercado', 'tianguis', 'abarrotes', 'compra',
+    'productos', 'articulos', 'despensa',
+  ];
+
+  // Check for list patterns (multiple items with dashes, bullets, numbers)
+  const hasListPattern = /(?:^|\n)\s*[-•●\*]\s+.+/m.test(text)
+    || /(?:^|\n)\s*\d+[\.\)\-]\s+.+/m.test(text);
+
+  // Count commas — many commas suggest a shopping list
+  const commaCount = (text.match(/,/g) || []).length;
+
+  if (hasListPattern || commaCount >= 3) {
+    return 'complejo';
+  }
+
+  for (const kw of complexKeywords) {
+    if (text.includes(kw)) return 'complejo';
+  }
+
+  // ── Simple keywords: pickups, deliveries, single movements ──
+  const simpleKeywords = [
+    'recoger', 'entregar', 'paquete', 'llevar', 'envio',
+    'enviar', 'traer', 'dejar', 'pasar por', 'ir por',
+  ];
+
+  for (const kw of simpleKeywords) {
+    if (text.includes(kw)) return 'sencillo';
+  }
+
+  // Short text (single movement) defaults to sencillo
+  if (text.length < 60) return 'sencillo';
+
+  // Default: sencillo
+  return 'sencillo';
+}
+
+function getServiceComision(tipo: ServiceType): number {
+  return tipo === 'sencillo' ? 35 : 45;
+}
+
+function getServiceLabel(tipo: ServiceType): string {
+  return tipo === 'sencillo' ? 'Mandado Sencillo' : 'Mandado Complejo';
+}
+
+// ─────────────────────────────────────────────────────────
+// Auto-assign order to driver with least load and notify
+// via WhatsApp template (5 variables).
+// ─────────────────────────────────────────────────────────
+async function autoAssignAndNotifyDriver(
+  orderId: string,
+  orderData: OrderData,
+  comision: number
+): Promise<void> {
+  try {
+    // 1. Find driver with least active_load_count
+    const drivers = await supabaseGet(
+      'drivers',
+      'status=in.(available,busy)&select=id,phone,active_load_count&order=active_load_count.asc&limit=1'
+    );
+
+    if (!drivers || drivers.length === 0) {
+      console.warn('[AutoAssign] No hay repartidores disponibles para asignar');
+      return;
+    }
+
+    const driver = drivers[0];
+    console.log(`[AutoAssign] Repartidor seleccionado: ${driver.id} (carga: ${driver.active_load_count ?? 0})`);
+
+    // 2. Assign order to driver
+    await supabaseUpdate('orders', orderId, {
+      assigned_driver_id: driver.id,
+      status: 'assigned',
+    });
+
+    // 3. Increment driver load and set busy
+    await fetch(`${SUPABASE_URL}/rest/v1/drivers?id=eq.${driver.id}`, {
+      method: 'PATCH',
+      headers: supabaseHeaders,
+      body: JSON.stringify({
+        active_load_count: (driver.active_load_count ?? 0) + 1,
+        status: 'busy',
+      }),
+    });
+
+    // 4. Create assignment record
+    await supabaseInsert('assignments', {
+      order_id: orderId,
+      driver_id: driver.id,
+      status: 'assigned',
+    });
+
+    // 5. Log event
+    await supabaseInsert('order_events', {
+      order_id: orderId,
+      event_type: 'assigned',
+      description: `Pedido auto-asignado a repartidor por bot de WhatsApp`,
+      metadata: { driver_id: driver.id, source: 'whatsapp_bot' },
+    });
+
+    // 6. Send WhatsApp template to driver (if phone available)
+    const driverPhone = driver.phone?.replace(/[^0-9]/g, '');
+    if (!driverPhone) {
+      console.warn('[AutoAssign] Repartidor sin teléfono, no se puede enviar plantilla');
+      return;
+    }
+
+    let waPhone = driverPhone;
+    if (waPhone.length === 10) waPhone = `52${waPhone}`;
+
+    const templateName = process.env.WHATSAPP_TEMPLATE_NAME || 'aviso_pedido_asignado';
+
+    const templatePayload = {
+      messaging_product: 'whatsapp',
+      to: waPhone,
+      type: 'template',
+      template: {
+        name: templateName,
+        language: { code: 'es_MX' },
+        components: [
+          {
+            type: 'body',
+            parameters: [
+              { type: 'text', text: orderData.nombre_cliente || 'Cliente' },
+              { type: 'text', text: orderData.items || 'Pedido' },
+              { type: 'text', text: orderData.direccion_recoger || 'Por confirmar' },
+              { type: 'text', text: orderData.direccion_entregar || 'Por confirmar' },
+              { type: 'text', text: `$${comision}.00` },
+            ],
+          },
+        ],
+      },
+    };
+
+    console.log(`[AutoAssign] Enviando plantilla "${templateName}" a repartidor ${waPhone}`);
+
+    const waRes = await fetch(GRAPH_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
+      },
+      body: JSON.stringify(templatePayload),
+    });
+
+    if (!waRes.ok) {
+      const errBody = await waRes.text();
+      console.error('[AutoAssign] Error enviando plantilla al repartidor:', errBody);
+    } else {
+      console.log('[AutoAssign] ✅ Plantilla enviada al repartidor exitosamente');
+    }
+  } catch (err) {
+    console.error('[AutoAssign] Error en auto-asignación:', err);
+  }
+}
+
+// ─────────────────────────────────────────────────────────
 // Clean phone for database (remove 521 or 52 prefix to keep 10 digits)
 // ─────────────────────────────────────────────────────────
 function cleanPhone(raw: string): string {
@@ -895,8 +1062,19 @@ async function processIncomingMessage(
       console.log('⏸️ Bot pausado automáticamente — esperando intervención humana');
     }
 
+    // Track service classification for final message
+    let serviceType: ServiceType | null = null;
+    let comision: number = 0;
+    let serviceLabel: string = '';
+
     if (orderData) {
       console.log('📦 Datos del pedido extraídos:', JSON.stringify(orderData));
+
+      // Classify the order type and calculate commission
+      serviceType = classifyServiceType(orderData.items);
+      comision = getServiceComision(serviceType);
+      serviceLabel = getServiceLabel(serviceType);
+      console.log(`💰 Clasificación: ${serviceLabel} → Comisión: $${comision}`);
 
       orderNumber = generateOrderNumber();
 
@@ -907,6 +1085,7 @@ async function processIncomingMessage(
         customer_name: orderData.nombre_cliente,
         customer_phone: customerPhone,
         order_type: 'mandadito',
+        service_type: serviceType,
         source: 'chatbot',
         status: 'pending',
         priority: 'normal',
@@ -930,10 +1109,12 @@ async function processIncomingMessage(
         special_instructions: `Pedido tomado por WhatsApp. Artículos: ${orderData.items}`,
         payment_method: 'cash',
         payment_status: 'pending',
+        delivery_fee: comision,
+        total_amount: comision,
       });
 
       if (order) {
-        console.log('✅ Pedido creado:', orderNumber, order.id);
+        console.log('✅ Pedido creado:', orderNumber, order.id, `| ${serviceLabel} $${comision}`);
 
         // Mark conversation as completed (with retry)
         console.log('📡 Actualizando estado de conversación a completed...');
@@ -977,8 +1158,8 @@ async function processIncomingMessage(
         await supabaseInsert('order_events', {
           order_id: order.id,
           event_type: 'created',
-          description: `Pedido creado vía WhatsApp. Número: ${orderNumber}`,
-          metadata: { source: 'whatsapp', phone: customerPhone },
+          description: `Pedido creado vía WhatsApp. Número: ${orderNumber} | ${serviceLabel} $${comision}`,
+          metadata: { source: 'whatsapp', phone: customerPhone, service_type: serviceType, comision },
         });
 
         // Insert a reset marker so ChatGPT knows to start a new order flow
@@ -986,6 +1167,11 @@ async function processIncomingMessage(
           conversation_id: conversation.id,
           sender_type: 'bot',
           message: `[PEDIDO COMPLETADO] Pedido ${orderNumber} creado exitosamente. --- Nuevo flujo de pedido disponible ---`,
+        });
+
+        // ── Auto-assign to best available driver and send WhatsApp template ──
+        autoAssignAndNotifyDriver(order.id, orderData, comision).catch((err) => {
+          console.error('[Webhook] Error en auto-asignación post-pedido:', err);
         });
       } else {
         console.error('❌ Error al crear el pedido en Supabase');
@@ -1004,6 +1190,10 @@ async function processIncomingMessage(
     let finalMessage = cleanResponse;
     if (orderData && orderNumber) {
       finalMessage += `\n\n📋 *Número de pedido:* ${orderNumber}`;
+      if (serviceType && comision) {
+        finalMessage += `\n💰 *Tipo de servicio:* ${serviceLabel}`;
+        finalMessage += `\n💵 *Costo del servicio:* $${comision}.00 MXN`;
+      }
     }
     if (escalationData) {
       finalMessage += `\n\n👨‍💼 _Un agente te contactará en breve._`;

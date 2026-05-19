@@ -249,6 +249,11 @@ export async function manualAssignOrder(
     // Add route stop
     const stop = await addRouteStop(route.id, orderId);
 
+    // Send WhatsApp template notification to customer (fire and forget)
+    sendOrderTemplateNotification(orderId).catch((err) => {
+        console.error('[TMS] Error enviando plantilla WhatsApp:', err);
+    });
+
     return { driverId, routeId: route.id, stopId: stop.id };
 }
 
@@ -433,4 +438,110 @@ export async function fetchDriversWithProfiles(): Promise<DriverWithProfile[]> {
 
     if (error) throw error;
     return (data ?? []) as DriverWithProfile[];
+}
+
+// ============================================================
+// Send WhatsApp template notification when order is assigned
+// Maps 5 parameters:
+//   {{1}} = nombre_cliente
+//   {{2}} = descripcion_producto
+//   {{3}} = direccion_recoleccion
+//   {{4}} = direccion_entrega
+//   {{5}} = total (comisión)
+// ============================================================
+async function sendOrderTemplateNotification(orderId: string): Promise<void> {
+    // Fetch the full order with customer phone
+    const { data: order, error } = await supabase
+        .from('orders')
+        .select('customer_name, customer_phone, pickup_address, delivery_address, items, special_instructions, total_amount, delivery_fee')
+        .eq('id', orderId)
+        .single();
+
+    if (error || !order) {
+        console.warn('[TMS→WA] No se pudo obtener el pedido para enviar plantilla:', orderId);
+        return;
+    }
+
+    // Need a phone number to send to
+    const phone = order.customer_phone;
+    if (!phone) {
+        console.warn('[TMS→WA] Pedido sin teléfono de cliente, no se puede enviar plantilla:', orderId);
+        return;
+    }
+
+    // Format phone for WhatsApp (needs country code, e.g. "521XXXXXXXXXX")
+    let waPhone = phone.replace(/[^0-9]/g, '');
+    if (waPhone.length === 10) {
+        waPhone = `52${waPhone}`; // Add Mexico country code
+    }
+
+    // Extract the 4 parameters from the order
+    const nombreCliente = order.customer_name || 'Cliente';
+
+    // Build product description from items array
+    let descripcionProducto = '';
+    if (order.items && Array.isArray(order.items) && order.items.length > 0) {
+        descripcionProducto = order.items
+            .map((item: any) => {
+                const name = item.name || item.product_name || '';
+                const qty = item.quantity ? `x${item.quantity}` : '';
+                return `${name} ${qty}`.trim();
+            })
+            .filter(Boolean)
+            .join(', ');
+    }
+    // Fallback to special_instructions if items didn't yield a description
+    if (!descripcionProducto && order.special_instructions) {
+        descripcionProducto = order.special_instructions
+            .replace(/^Pedido tomado por WhatsApp\.\s*Artículos:\s*/i, '')
+            .trim();
+    }
+    if (!descripcionProducto) {
+        descripcionProducto = 'Tu pedido';
+    }
+
+    // Extract addresses
+    const pickupAddr = order.pickup_address;
+    const deliveryAddr = order.delivery_address;
+    const direccionRecoleccion = typeof pickupAddr === 'string'
+        ? pickupAddr
+        : pickupAddr?.street || pickupAddr?.address || 'Por confirmar';
+    const direccionEntrega = typeof deliveryAddr === 'string'
+        ? deliveryAddr
+        : deliveryAddr?.street || deliveryAddr?.address || 'Por confirmar';
+
+    // Template name from environment or default
+    const templateName = (typeof window === 'undefined' ? process.env.WHATSAPP_TEMPLATE_NAME : null) || 'aviso_pedido_asignado';
+
+    console.log(`[TMS→WA] Enviando plantilla "${templateName}" a ${waPhone}:`, {
+        nombre_cliente: nombreCliente,
+        descripcion_producto: descripcionProducto,
+        direccion_recoleccion: direccionRecoleccion,
+        direccion_entrega: direccionEntrega,
+    });
+
+    try {
+        const res = await fetch('/api/whatsapp-template-send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                to: waPhone,
+                template_name: templateName,
+                nombre_cliente: nombreCliente,
+                descripcion_producto: descripcionProducto,
+                direccion_recoleccion: direccionRecoleccion,
+                direccion_entrega: direccionEntrega,
+                total: `$${order.total_amount || order.delivery_fee || 0}`,
+            }),
+        });
+
+        if (!res.ok) {
+            const errBody = await res.text();
+            console.error('[TMS→WA] Error al enviar plantilla:', errBody);
+        } else {
+            console.log('[TMS→WA] ✅ Plantilla enviada exitosamente');
+        }
+    } catch (err) {
+        console.error('[TMS→WA] Excepción al enviar plantilla:', err);
+    }
 }

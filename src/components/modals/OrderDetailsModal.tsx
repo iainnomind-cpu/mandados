@@ -244,30 +244,22 @@ export default function OrderDetailsModal({
             <Section title="Artículos">
               <div className="space-y-1">
                 <div className="grid grid-cols-12 text-xs text-gray-400 mb-1 px-1">
-                  <span className="col-span-6">Producto</span>
-                  <span className="col-span-2 text-center">Cant.</span>
-                  <span className="col-span-2 text-right">P.Unit</span>
-                  <span className="col-span-2 text-right">Sub</span>
+                  <span className="col-span-9">Producto</span>
+                  <span className="col-span-3 text-center">Cant.</span>
                 </div>
                 {order.order_items.map((item) => (
                   <div
                     key={item.id}
                     className="grid grid-cols-12 text-sm py-1.5 px-1 rounded hover:bg-gray-50"
                   >
-                    <span className="col-span-6 font-medium text-gray-800">{item.product_name}</span>
-                    <span className="col-span-2 text-center text-gray-600">{item.quantity}</span>
-                    <span className="col-span-2 text-right text-gray-600">
-                      ${item.unit_price.toFixed(2)}
-                    </span>
-                    <span className="col-span-2 text-right font-medium text-gray-800">
-                      ${item.subtotal.toFixed(2)}
-                    </span>
+                    <span className="col-span-9 font-medium text-gray-800">{item.product_name}</span>
+                    <span className="col-span-3 text-center text-gray-600">{item.quantity}</span>
                   </div>
                 ))}
               </div>
               <div className="mt-3 flex justify-end">
                 <div className="bg-gray-50 rounded-lg px-4 py-2 flex items-center gap-2">
-                  <span className="text-xs text-gray-500">Total</span>
+                  <span className="text-xs text-gray-500">Comisión de Servicio</span>
                   {editingAmount ? (
                     <div className="flex items-center gap-1.5">
                       <DollarSign className="w-4 h-4 text-gray-400" />

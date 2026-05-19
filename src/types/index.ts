@@ -4,6 +4,8 @@ export type DriverStatus = 'available' | 'busy' | 'offline' | 'suspended';
 
 export type OrderType = 'mandadito' | 'restaurant' | 'express';
 
+export type ServiceType = 'sencillo' | 'complejo';
+
 export type OrderSource = 'chatbot' | 'phone' | 'web' | 'restaurant';
 
 export type OrderStatus = 'pending' | 'confirmed' | 'assigned' | 'in_transit' | 'delivered' | 'cancelled';
@@ -96,6 +98,8 @@ export interface Order {
   customer_name?: string;
   customer_phone?: string;
   order_type: OrderType;
+  /** Tipo de servicio: sencillo ($35) o complejo ($45) */
+  service_type?: ServiceType;
   source: OrderSource;
   status: OrderStatus;
   priority: OrderPriority;
@@ -106,6 +110,7 @@ export interface Order {
   items: OrderItem[];
   special_instructions?: string;
   total_amount: number;
+  /** Comisión del servicio (antes delivery_fee) */
   delivery_fee: number;
   payment_method: PaymentMethod;
   payment_status: PaymentStatus;
@@ -119,7 +124,6 @@ export interface Order {
 export interface OrderItem {
   name: string;
   quantity: number;
-  price?: number;
   notes?: string;
 }
 
@@ -134,11 +138,10 @@ export interface OrderItemRelational {
   created_at: string;
 }
 
-/** Form state used when creating/editing order items */
+/** Form state used when creating/editing order items (descriptive only, no pricing) */
 export interface OrderItemDraft {
   product_name: string;
   quantity: number;
-  unit_price: number;
 }
 
 /** Extended Order with joined order_items rows */
