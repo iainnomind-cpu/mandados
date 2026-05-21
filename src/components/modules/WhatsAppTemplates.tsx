@@ -79,7 +79,7 @@ export default function WhatsAppTemplates() {
 
   // ─── WhatsApp preview ───
   const previewBody = useMemo(() => {
-    const exampleValues = ['Lugar ejemplo', '$199.00', 'Juan', '#12345', '30 min', 'Mandados ERP'];
+    const exampleValues = ['Juan Pérez', 'Pollo asado x1', 'Pizza Pomodori, Centro', 'Vigía 39, Col. Hacienda', '$45.00'];
     let preview = body;
     detectedVars.forEach((v) => {
       const idx = parseInt(v.replace(/\{|\}/g, '')) - 1;
@@ -292,7 +292,7 @@ export default function WhatsAppTemplates() {
               </label>
               <div className="flex items-center gap-1.5">
                 <span className="text-[10px] text-slate-400 font-medium">Insertar variable:</span>
-                {[1, 2, 3].map(n => (
+                {[1, 2, 3, 4, 5].map(n => (
                   <button
                     key={n}
                     type="button"
@@ -308,7 +308,7 @@ export default function WhatsAppTemplates() {
               value={body}
               onChange={(e) => setBody(e.target.value)}
               rows={4}
-              placeholder="ej: Hola, tu pedido será entregado en {{1}} por un monto de {{2}}. ¡Gracias por tu preferencia!"
+              placeholder="ej: Hola {{1}}, tu pedido ({{2}}) se recogerá en {{3}} y se entregará en {{4}}. Total: {{5}}. ¡Gracias!"
               className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent resize-none transition-all placeholder:text-slate-400"
             />
             {detectedVars.length > 0 && (

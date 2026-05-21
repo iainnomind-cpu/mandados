@@ -15,7 +15,7 @@ interface ProofOfDeliveryModalProps {
 
 export default function ProofOfDeliveryModal({ stop, route, onClose, onConfirm }: ProofOfDeliveryModalProps) {
     const [collectedAmount, setCollectedAmount] = useState<string>(
-        stop.order ? (stop.order.total_amount + (stop.order as any).delivery_fee || stop.order.total_amount).toString() : '0'
+        stop.order ? (stop.order.total_amount ?? 0).toString() : '0'
     );
     const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer' | 'card'>('cash');
     const [proofDelivered, setProofDelivered] = useState<boolean>(true);

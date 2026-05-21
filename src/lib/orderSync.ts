@@ -22,7 +22,7 @@ export async function createOrderWithItems(
         order_id: order.id,
         product_name: item.product_name,
         quantity: item.quantity,
-        unit_price: item.unit_price,
+        unit_price: (item as any).unit_price ?? 0, // Descriptive items — no pricing
       }))
     );
     if (itemsError) throw itemsError;

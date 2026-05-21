@@ -1,8 +1,10 @@
-import { useState, useMemo, useEffect } from 'react';
-import { X, Plus, Trash2, ShoppingCart, MapPin } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, Plus, Trash2, ShoppingCart, MapPin, Zap, Package } from 'lucide-react';
 import { createOrderWithItems } from '../../lib/orderSync';
 import { getActiveZones } from '../../lib/zoneSync';
+import { calcularComision, SERVICE_TYPE_DESCRIPTIONS } from '../../lib/comision';
 import { OrderItemDraft, OrderType, OrderSource, OrderPriority, DeliveryZone } from '../../types';
+import type { ServiceType } from '../../lib/comision';
 
 interface NewOrderModalProps {
   onClose: () => void;
@@ -13,7 +15,6 @@ interface NewOrderModalProps {
 const EMPTY_ITEM: OrderItemDraft = {
   product_name: '',
   quantity: 1,
-  unit_price: '' as unknown as number,
 };
 
 
@@ -24,12 +25,15 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [deliveryLat, setDeliveryLat] = useState<number | null>(null);
 
-  // --- Zonas y Comisión ---
+  // --- Zonas ---
   const [zones, setZones] = useState<DeliveryZone[]>([]);
-  const [deliveryFee, setDeliveryFee] = useState<number>(40);
   useEffect(() => {
     getActiveZones().then(setZones).catch(console.error);
   }, []);
+
+  // --- Tipo de Servicio y Comisión ---
+  const [serviceType, setServiceType] = useState<ServiceType>('sencillo');
+  const comision = calcularComision(serviceType);
 
   // --- Order metadata ---
   const [orderType, setOrderType] = useState<OrderType>('mandadito');
@@ -37,22 +41,13 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
   const [priority, setPriority] = useState<OrderPriority>('normal');
   const [specialInstructions, setSpecialInstructions] = useState('');
 
-  // --- Items ---
+  // --- Items (descriptive only — no pricing) ---
   const [items, setItems] = useState<OrderItemDraft[]>([{ ...EMPTY_ITEM }]);
 
   const [loading, setLoading] = useState(false);
 
-  // Auto-calculate total
-  const itemsTotal = useMemo(
-    () => items.reduce((s, it) => {
-      const rawData = String(it.unit_price || '').replace(/,/g, '.').replace(/[^0-9.]/g, '');
-      const price = parseFloat(rawData) || 0;
-      return s + (it.quantity * price);
-    }, 0),
-    [items]
-  );
-
-  const totalAmount = itemsTotal + deliveryFee;
+  // Total = comisión de servicio
+  const totalAmount = comision;
 
   // --- Item helpers ---
   const addItem = () => setItems((prev) => [...prev, { ...EMPTY_ITEM }]);
@@ -101,6 +96,7 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
           // Store delivery_address as a JSON object for compatibility
           delivery_address: { street: deliveryAddress.trim(), city: '', state: '' },
           order_type: orderType,
+          service_type: serviceType,
           source,
           priority,
           status: 'pending',
@@ -109,13 +105,13 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
           special_instructions: specialInstructions.trim() || undefined,
           payment_method: 'cash',
           payment_status: 'pending',
-          delivery_fee: deliveryFee,
+          delivery_fee: comision,
           total_amount: totalAmount,
         } as Parameters<typeof createOrderWithItems>[0],
-        validItems.map(it => {
-          const rawData = String(it.unit_price || '').replace(/,/g, '.').replace(/[^0-9.]/g, '');
-          return { ...it, unit_price: parseFloat(rawData) || 0 };
-        })
+        validItems.map(it => ({
+          ...it,
+          unit_price: 0, // No pricing — field kept for DB compat
+        }))
       );
 
       onSuccess('Pedido creado exitosamente');
@@ -189,13 +185,73 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
                     required
                     className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
-                {deliveryLat && (
-                  <p className="text-xs text-green-600 mt-1 flex items-center gap-1">
-                    <MapPin className="w-3 h-3" />
-                    Comisión aplicada: ${deliveryFee} MXN
-                  </p>
-                )}
               </div>
+            </div>
+          </section>
+
+          {/* Tipo de Servicio — Comisión automática */}
+          <section>
+            <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3">
+              Tipo de Servicio
+            </h3>
+            <div className="grid grid-cols-2 gap-3">
+              {/* Sencillo */}
+              <button
+                type="button"
+                onClick={() => setServiceType('sencillo')}
+                className={`relative flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${
+                  serviceType === 'sencillo'
+                    ? 'border-blue-500 bg-blue-50 shadow-md'
+                    : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                {serviceType === 'sencillo' && (
+                  <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-blue-500 rounded-full animate-pulse" />
+                )}
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                  serviceType === 'sencillo' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-500'
+                }`}>
+                  <Package className="w-5 h-5" />
+                </div>
+                <div className="text-center">
+                  <p className={`text-sm font-bold ${serviceType === 'sencillo' ? 'text-blue-700' : 'text-gray-800'}`}>
+                    Sencillo
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5">{SERVICE_TYPE_DESCRIPTIONS.sencillo}</p>
+                </div>
+                <p className={`text-lg font-bold ${serviceType === 'sencillo' ? 'text-blue-600' : 'text-gray-400'}`}>
+                  $35
+                </p>
+              </button>
+
+              {/* Complejo */}
+              <button
+                type="button"
+                onClick={() => setServiceType('complejo')}
+                className={`relative flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all ${
+                  serviceType === 'complejo'
+                    ? 'border-violet-500 bg-violet-50 shadow-md'
+                    : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                {serviceType === 'complejo' && (
+                  <span className="absolute top-2 right-2 w-2.5 h-2.5 bg-violet-500 rounded-full animate-pulse" />
+                )}
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                  serviceType === 'complejo' ? 'bg-violet-500 text-white' : 'bg-gray-100 text-gray-500'
+                }`}>
+                  <Zap className="w-5 h-5" />
+                </div>
+                <div className="text-center">
+                  <p className={`text-sm font-bold ${serviceType === 'complejo' ? 'text-violet-700' : 'text-gray-800'}`}>
+                    Complejo
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5">{SERVICE_TYPE_DESCRIPTIONS.complejo}</p>
+                </div>
+                <p className={`text-lg font-bold ${serviceType === 'complejo' ? 'text-violet-600' : 'text-gray-400'}`}>
+                  $45
+                </p>
+              </button>
             </div>
           </section>
 
@@ -245,7 +301,7 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
             </div>
           </section>
 
-          {/* Items Section */}
+          {/* Items Section — descriptive only, no pricing */}
           <section>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
@@ -263,26 +319,20 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
 
             {/* Column headers */}
             <div className="grid grid-cols-12 gap-2 text-xs font-medium text-gray-500 mb-1 px-1">
-              <span className="col-span-5">Producto</span>
-              <span className="col-span-2 text-center">Cantidad</span>
-              <span className="col-span-2 text-right">Precio Unit.</span>
-              <span className="col-span-2 text-right">Subtotal</span>
+              <span className="col-span-8">Producto</span>
+              <span className="col-span-3 text-center">Cantidad</span>
               <span className="col-span-1" />
             </div>
 
             <div className="space-y-2">
-              {items.map((item, idx) => {
-                const rawPrice = String(item.unit_price || '').replace(/,/g, '.').replace(/[^0-9.]/g, '');
-                const priceNum = parseFloat(rawPrice) || 0;
-                const subtotal = item.quantity * priceNum;
-                return (
+              {items.map((item, idx) => (
                   <div key={idx} className="grid grid-cols-12 gap-2 items-center">
                     <input
                       type="text"
                       placeholder="Nombre del producto"
                       value={item.product_name}
                       onChange={(e) => updateItem(idx, { product_name: e.target.value })}
-                      className="col-span-5 px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="col-span-8 px-2 py-1.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     <input
                       type="number"
@@ -300,22 +350,8 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
                       onBlur={() => {
                         if (item.quantity < 1) updateItem(idx, { quantity: 1 });
                       }}
-                      className="col-span-2 px-2 py-1.5 text-sm border border-gray-300 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="col-span-3 px-2 py-1.5 text-sm border border-gray-300 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={item.unit_price === 0 ? '' : item.unit_price}
-                      placeholder="0.00"
-                      onChange={(e) => {
-                        const val = e.target.value.replace(/[^0-9.,]/g, '');
-                        updateItem(idx, { unit_price: val as unknown as number });
-                      }}
-                      className="col-span-2 px-2 py-1.5 text-sm border border-gray-300 rounded-lg text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <span className="col-span-2 text-right text-sm font-medium text-gray-700 pr-1 notranslate" translate="no">
-                      ${subtotal.toFixed(2)}
-                    </span>
                     <button
                       type="button"
                       onClick={() => removeItem(idx)}
@@ -325,34 +361,31 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
                       <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
-                );
-              })}
+              ))}
             </div>
 
-            {/* Total */}
+            {/* Comisión Total */}
             <div className="mt-4 flex justify-end">
-              <div className="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 min-w-[200px]">
-                <div className="flex justify-between text-xs text-gray-500 mb-1">
-                  <span>Subtotal:</span>
-                  <span className="notranslate" translate="no">${itemsTotal.toFixed(2)}</span>
-                </div>
-                <div className="flex justify-between items-center text-xs text-gray-500 mb-2 border-b pb-1">
-                  <span>Envío:</span>
-                  <div className="flex items-center gap-1">
-                    <span>$</span>
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={deliveryFee === 0 ? '' : deliveryFee}
-                      onChange={(e) => setDeliveryFee(parseFloat(e.target.value) || 0)}
-                      className="w-16 px-1 py-0.5 border border-gray-300 rounded text-right focus:outline-none"
-                    />
-                  </div>
+              <div className={`border rounded-lg px-4 py-3 min-w-[200px] ${
+                serviceType === 'complejo'
+                  ? 'bg-violet-50 border-violet-200'
+                  : 'bg-blue-50 border-blue-200'
+              }`}>
+                <div className="flex justify-between items-center text-xs text-gray-500 mb-2">
+                  <span>Tipo de Servicio:</span>
+                  <span className={`font-semibold ${
+                    serviceType === 'complejo' ? 'text-violet-600' : 'text-blue-600'
+                  }`}>
+                    {serviceType === 'sencillo' ? 'Sencillo' : 'Complejo'}
+                  </span>
                 </div>
                 <div className="flex justify-between items-baseline">
-                  <span className="text-sm font-bold text-gray-700 mr-2">Total:</span>
-                  <p className="text-2xl font-bold text-gray-900 notranslate" translate="no">${totalAmount.toFixed(2)}</p>
+                  <span className="text-sm font-bold text-gray-700 mr-2">Comisión:</span>
+                  <p className={`text-2xl font-bold notranslate ${
+                    serviceType === 'complejo' ? 'text-violet-700' : 'text-blue-700'
+                  }`} translate="no">
+                    ${totalAmount.toFixed(2)}
+                  </p>
                 </div>
               </div>
             </div>
@@ -385,7 +418,11 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
             <button
               type="submit"
               disabled={loading}
-              className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50 transition-colors"
+              className={`flex-1 px-4 py-2 text-white rounded-lg text-sm font-medium disabled:opacity-50 transition-colors ${
+                serviceType === 'complejo'
+                  ? 'bg-violet-600 hover:bg-violet-700'
+                  : 'bg-blue-600 hover:bg-blue-700'
+              }`}
             >
               {loading ? 'Creando pedido…' : `Crear Pedido · $${totalAmount.toFixed(2)}`}
             </button>

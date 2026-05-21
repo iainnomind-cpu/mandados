@@ -29,7 +29,7 @@ export function validateOrder(orderData: {
   }
 
   if (orderData.delivery_fee < 0) {
-    errors.push('Tarifa de envío debe ser mayor o igual a 0');
+    errors.push('La comisión de servicio debe ser mayor o igual a 0');
   }
 
   return {
