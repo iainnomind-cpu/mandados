@@ -154,12 +154,14 @@ export default function BusinessHoursConfig() {
         .from('system_settings')
         .select('business_hours, outside_hours_message')
         .eq('id', 1)
-        .single();
+        .maybeSingle();
 
       if (err) throw err;
       if (data) {
         if (data.business_hours) setBusinessHours(data.business_hours);
         if (data.outside_hours_message) setOutsideMessage(data.outside_hours_message);
+      } else {
+        console.warn('⚠️ No se encontró la fila system_settings id=1. Se creará al guardar.');
       }
     } catch (e: any) {
       console.error('Error loading settings:', e);
@@ -178,13 +180,14 @@ export default function BusinessHoursConfig() {
     try {
       console.log('💾 Guardando configuración:', JSON.stringify(businessHours, null, 2));
 
-      const { error: err, data: updateData } = await supabase
+      // Use upsert to create the row if it doesn't exist
+      const { error: err, data: upsertData } = await supabase
         .from('system_settings')
-        .update({
+        .upsert({
+          id: 1,
           business_hours: businessHours,
           outside_hours_message: outsideMessage,
-        })
-        .eq('id', 1)
+        }, { onConflict: 'id' })
         .select();
 
       if (err) {
@@ -192,14 +195,14 @@ export default function BusinessHoursConfig() {
         throw err;
       }
 
-      console.log('✅ Guardado exitoso, respuesta:', JSON.stringify(updateData));
+      console.log('✅ Guardado exitoso, respuesta:', JSON.stringify(upsertData));
 
       // Verify by reading back
       const { data: verifyData } = await supabase
         .from('system_settings')
         .select('business_hours, outside_hours_message')
         .eq('id', 1)
-        .single();
+        .maybeSingle();
 
       console.log('🔍 Verificación post-guardado:', JSON.stringify(verifyData?.business_hours, null, 2));
 

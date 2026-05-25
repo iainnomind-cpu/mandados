@@ -505,6 +505,18 @@ async function autoAssignAndNotifyDriver(
               { type: 'text', text: `$${comision}.00` },
             ],
           },
+          {
+            type: 'button',
+            sub_type: 'quick_reply',
+            index: '0',
+            parameters: [{ type: 'payload', payload: `DELIVERED_OK:${orderId}` }],
+          },
+          {
+            type: 'button',
+            sub_type: 'quick_reply',
+            index: '1',
+            parameters: [{ type: 'payload', payload: `ORDER_PROBLEM:${orderId}` }],
+          },
         ],
       },
     };
@@ -1212,6 +1224,96 @@ async function processIncomingMessage(
 }
 
 // ─────────────────────────────────────────────────────────
+// Process driver button responses (quick reply from template)
+// ─────────────────────────────────────────────────────────
+async function processDriverButtonResponse(from: string, payload: string): Promise<void> {
+  try {
+    console.log(`\n${'='.repeat(50)}`);
+    console.log(`🔘 Botón de repartidor recibido de ${from}: "${payload}"`);
+
+    // Parse payload: "DELIVERED_OK:{orderId}" or "ORDER_PROBLEM:{orderId}"
+    const [action, orderId] = payload.split(':');
+
+    if (!orderId) {
+      console.warn('⚠️ Payload sin orderId:', payload);
+      return;
+    }
+
+    // Verify the order exists and is assigned
+    const orders = await supabaseGet('orders', `id=eq.${orderId}&select=id,status,assigned_driver_id,order_number`);
+    if (orders.length === 0) {
+      console.warn(`⚠️ Pedido ${orderId} no encontrado`);
+      await sendWhatsAppMessage(from, '⚠️ No se encontró el pedido. Contacta a la central.');
+      return;
+    }
+
+    const order = orders[0];
+
+    if (action === 'DELIVERED_OK') {
+      // ── Mark order as delivered ──
+      await supabaseUpdate('orders', orderId, {
+        status: 'delivered',
+      });
+
+      // Decrement driver load
+      if (order.assigned_driver_id) {
+        const drivers = await supabaseGet('drivers', `id=eq.${order.assigned_driver_id}&select=id,active_load_count`);
+        if (drivers.length > 0) {
+          const newLoad = Math.max(0, (drivers[0].active_load_count ?? 1) - 1);
+          await fetch(`${SUPABASE_URL}/rest/v1/drivers?id=eq.${order.assigned_driver_id}`, {
+            method: 'PATCH',
+            headers: supabaseHeaders,
+            body: JSON.stringify({
+              active_load_count: newLoad,
+              status: newLoad === 0 ? 'available' : 'busy',
+            }),
+          });
+        }
+      }
+
+      // Log event
+      await supabaseInsert('order_events', {
+        order_id: orderId,
+        event_type: 'delivered',
+        description: `Pedido ${order.order_number || orderId} marcado como entregado por el repartidor vía WhatsApp`,
+        metadata: { source: 'whatsapp_button', driver_phone: from },
+      });
+
+      await sendWhatsAppMessage(from, `✅ ¡Perfecto! El pedido ${order.order_number || ''} ha sido marcado como *entregado*. ¡Buen trabajo! 🎉`);
+      console.log(`✅ Pedido ${orderId} marcado como entregado por repartidor ${from}`);
+
+    } else if (action === 'ORDER_PROBLEM') {
+      // ── Mark order as problem — keep driver assigned ──
+      await supabaseUpdate('orders', orderId, {
+        status: 'problem',
+      });
+
+      // Log event (keep driver_id for admin reference)
+      await supabaseInsert('order_events', {
+        order_id: orderId,
+        event_type: 'problem_reported',
+        description: `Pedido ${order.order_number || orderId} reportado con problemas por el repartidor vía WhatsApp`,
+        metadata: {
+          source: 'whatsapp_button',
+          driver_phone: from,
+          driver_id: order.assigned_driver_id,
+          previous_status: order.status,
+        },
+      });
+
+      await sendWhatsAppMessage(from, `⚠️ El pedido ${order.order_number || ''} ha sido marcado como *con problemas*. La central ha sido notificada y se pondrá en contacto contigo.`);
+      console.log(`⚠️ Pedido ${orderId} marcado con problemas por repartidor ${from}`);
+
+    } else {
+      console.warn('⚠️ Acción de botón desconocida:', action);
+    }
+  } catch (error) {
+    console.error('❌ Error procesando respuesta de botón:', error);
+    await sendWhatsAppMessage(from, '😅 Hubo un error procesando tu respuesta. Por favor contacta a la central.');
+  }
+}
+
+// ─────────────────────────────────────────────────────────
 // Vercel Handler
 // ─────────────────────────────────────────────────────────
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -1272,6 +1374,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                     from,
                     '😅 No pude recibir la imagen correctamente. ¿Podrías enviarla de nuevo? 📷'
                   );
+                }
+
+              } else if (msgType === 'interactive') {
+                // Interactive message — driver pressed a quick reply button
+                const buttonReply = message.interactive?.button_reply;
+                if (buttonReply?.id) {
+                  console.log(`🔘 Botón interactivo recibido de ${from}: ${buttonReply.id}`);
+                  await processDriverButtonResponse(from, buttonReply.id);
+                } else {
+                  console.warn('⚠️ Mensaje interactivo sin button_reply:', JSON.stringify(message.interactive));
                 }
 
               } else {
