@@ -331,13 +331,14 @@ export default function FinanceManagement() {
                   <th className="px-4 py-3 text-right text-[10px] font-bold text-slate-500 uppercase tracking-wider">Esperado</th>
                   <th className="px-4 py-3 text-right text-[10px] font-bold text-slate-500 uppercase tracking-wider">Entregado</th>
                   <th className="px-4 py-3 text-right text-[10px] font-bold text-slate-500 uppercase tracking-wider">Diferencia</th>
+                  <th className="px-4 py-3 text-center text-[10px] font-bold text-slate-500 uppercase tracking-wider">Fondo</th>
                   <th className="px-5 py-3 text-center text-[10px] font-bold text-slate-500 uppercase tracking-wider">Estado</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
                 {history.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-5 py-8 text-center text-sm text-slate-400">
+                    <td colSpan={7} className="px-5 py-8 text-center text-sm text-slate-400">
                       No hay liquidaciones registradas
                     </td>
                   </tr>
@@ -366,6 +367,16 @@ export default function FinanceManagement() {
                         >
                           {rec.difference >= 0 ? '+' : ''}{rec.difference < 0 ? '-' : ''}${Math.abs(rec.difference).toFixed(2)}
                         </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {rec.company_fund > 0 ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700"
+                                style={{ border: '1px solid rgba(245,158,11,0.2)', fontFamily: "'JetBrains Mono', monospace" }}>
+                            ${rec.company_fund.toFixed(2)}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-300">—</span>
+                        )}
                       </td>
                       <td className="px-5 py-3 text-center">
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 uppercase"

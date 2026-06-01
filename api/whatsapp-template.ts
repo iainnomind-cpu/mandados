@@ -110,6 +110,7 @@ async function handleCreateTemplate(req: VercelRequest, res: VercelResponse) {
     language = 'es_MX',
     header,
     footer,
+    buttons,
   } = req.body || {};
 
   // ── Validate required fields ──
@@ -163,6 +164,17 @@ async function handleCreateTemplate(req: VercelRequest, res: VercelResponse) {
     components.push({
       type: 'FOOTER',
       text: footer.trim(),
+    });
+  }
+
+  // Optional BUTTONS component (Quick Replies)
+  if (buttons && Array.isArray(buttons) && buttons.length > 0) {
+    components.push({
+      type: 'BUTTONS',
+      buttons: buttons.map((btn: any) => ({
+        type: btn.type || 'QUICK_REPLY',
+        text: btn.text,
+      })),
     });
   }
 

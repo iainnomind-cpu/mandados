@@ -27,6 +27,7 @@ export interface SettlementRecord {
   total_expected: number;
   total_delivered: number;
   difference: number;
+  company_fund: number;
   status: 'settled';
   created_at: string;
 }
@@ -158,6 +159,7 @@ export async function processSettlement(
   complejoCount: number,
   totalExpected: number,
   totalDelivered: number,
+  companyFund: number = 0,
 ): Promise<void> {
   const difference = totalDelivered - totalExpected;
 
@@ -169,6 +171,7 @@ export async function processSettlement(
     total_advances: 0,
     driver_commissions: totalExpected,
     net_remittance_due: difference,
+    company_fund: companyFund,
     status: 'paid_to_company',
   }]);
 
@@ -200,6 +203,7 @@ export async function getSettlementHistory(limit = 30): Promise<SettlementRecord
     total_expected: row.driver_commissions || 0,
     total_delivered: row.total_collected || 0,
     difference: row.net_remittance_due || 0,
+    company_fund: row.company_fund || 0,
     status: 'settled' as const,
     created_at: row.created_at,
   }));

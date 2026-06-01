@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import {
   MessageSquareText, Send, RefreshCw, Check, AlertCircle,
   FileText, Trash2, ChevronDown, ChevronUp, Eye, EyeOff,
-  Sparkles, Info, X
+  Sparkles, Info, X, MousePointerClick
 } from 'lucide-react';
 
 // ─── Types ───
@@ -38,6 +38,12 @@ function getStatusLabel(status: string): string {
 // ═══════════════════════════════════════════════════════════
 // COMPONENT
 // ═══════════════════════════════════════════════════════════
+// ─── Default Quick Reply buttons ───
+const DEFAULT_BUTTONS = [
+  { type: 'QUICK_REPLY' as const, text: 'Entregado con éxito' },
+  { type: 'QUICK_REPLY' as const, text: 'Pedido no realizado' },
+];
+
 export default function WhatsAppTemplates() {
   // ─── Form state ───
   const [name, setName] = useState('');
@@ -139,6 +145,7 @@ export default function WhatsAppTemplates() {
           body: body.trim(),
           header: header.trim() || undefined,
           footer: footer.trim() || undefined,
+          buttons: DEFAULT_BUTTONS,
           category: 'UTILITY',
           language: 'es_MX',
         }),
@@ -336,6 +343,39 @@ export default function WhatsAppTemplates() {
             />
           </div>
 
+          {/* Quick Reply Buttons */}
+          <div>
+            <div className="flex items-center gap-2 mb-2">
+              <MousePointerClick className="w-3.5 h-3.5 text-purple-500" />
+              <label className="block text-xs font-semibold text-slate-600">
+                Botones de acción <span className="text-slate-400 font-normal">(Quick Replies)</span>
+              </label>
+            </div>
+            <div className="space-y-2">
+              {DEFAULT_BUTTONS.map((btn, idx) => (
+                <div
+                  key={idx}
+                  className="flex items-center gap-3 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl"
+                >
+                  <span
+                    className="shrink-0 w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black text-white"
+                    style={{ background: 'linear-gradient(135deg, #6366f1, #4f46e5)' }}
+                  >
+                    {idx + 1}
+                  </span>
+                  <span className="text-sm font-medium text-slate-700">{btn.text}</span>
+                  <span className="ml-auto text-[10px] font-semibold text-purple-500 bg-purple-50 px-2 py-0.5 rounded-md border border-purple-100 uppercase tracking-wider">
+                    Quick Reply
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1.5 flex items-center gap-1">
+              <Info className="w-3 h-3" />
+              Estos botones se incluirán automáticamente en la plantilla para el flujo de entregas.
+            </p>
+          </div>
+
           {/* ── WhatsApp Preview ── */}
           <div>
             <button
@@ -370,6 +410,19 @@ export default function WhatsAppTemplates() {
                     <p className="text-[10px] text-slate-500 text-right mt-1">
                       {new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} ✓✓
                     </p>
+                  </div>
+                  {/* Quick Reply buttons preview */}
+                  <div className="flex gap-1.5 pt-0.5">
+                    {DEFAULT_BUTTONS.map((btn, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        className="flex-1 bg-white rounded-xl py-2 px-3 text-[13px] font-medium text-[#00a884] text-center shadow-sm hover:bg-slate-50 transition-colors cursor-default"
+                        style={{ border: 'none' }}
+                      >
+                        {btn.text}
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>

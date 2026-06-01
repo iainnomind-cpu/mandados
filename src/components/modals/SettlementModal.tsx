@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, DollarSign, Package, Zap, CheckCircle, AlertTriangle } from 'lucide-react';
+import { X, DollarSign, Package, Zap, CheckCircle, AlertTriangle, Briefcase, ToggleLeft, ToggleRight } from 'lucide-react';
 import { processSettlement } from '../../lib/financesSync';
 import { calcularComision } from '../../lib/comision';
 import CashCalculatorModal from './CashCalculatorModal';
@@ -30,9 +30,16 @@ export default function SettlementModal({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // --- Company fund state ---
+  const [fondoActivo, setFondoActivo] = useState(false);
+  const [fondoEmpresa, setFondoEmpresa] = useState<string>('');
+
   const comisionSencillo = calcularComision('sencillo');
   const comisionComplejo = calcularComision('complejo');
-  const totalEsperado = sencilloCount * comisionSencillo + complejoCount * comisionComplejo;
+  const sumaComisiones = sencilloCount * comisionSencillo + complejoCount * comisionComplejo;
+
+  const fondoNum = fondoActivo ? (parseFloat(fondoEmpresa) || 0) : 0;
+  const totalEsperado = sumaComisiones + fondoNum;
 
   const entregadoNum = parseFloat(dineroEntregado) || 0;
   const diferencia = entregadoNum - totalEsperado;
@@ -60,6 +67,11 @@ export default function SettlementModal({
       return;
     }
 
+    if (fondoActivo && fondoNum <= 0) {
+      setError('Ingresa el monto del fondo entregado por la empresa.');
+      return;
+    }
+
     setLoading(true);
     setError('');
 
@@ -72,6 +84,7 @@ export default function SettlementModal({
         complejoCount,
         totalEsperado,
         entregadoNum,
+        fondoNum,
       );
       onSuccess();
     } catch (err: any) {
@@ -185,6 +198,28 @@ export default function SettlementModal({
                     </span>
                   </div>
                 </div>
+
+                {/* Company fund row — conditional */}
+                {fondoActivo && fondoNum > 0 && (
+                  <div className="px-4 py-3 flex items-center justify-between"
+                       style={{ background: 'rgba(245,158,11,0.04)' }}>
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center">
+                        <Briefcase className="w-3.5 h-3.5 text-amber-600" />
+                      </div>
+                      <div>
+                        <span className="text-sm font-semibold text-amber-800">Fondo Empresa</span>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-sm font-bold text-amber-700" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+                        +${fondoNum.toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Total Esperado */}
                 <div className="px-4 py-3.5 flex items-center justify-between"
                      style={{ background: 'linear-gradient(135deg, #eef2ff, #e0e7ff)' }}>
                   <span className="text-sm font-black text-indigo-900 uppercase tracking-wide">Total Esperado</span>
@@ -193,6 +228,80 @@ export default function SettlementModal({
                   </span>
                 </div>
               </div>
+            </div>
+
+            {/* Company Fund Toggle */}
+            <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid #e2e8f0' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setFondoActivo(prev => !prev);
+                  if (fondoActivo) setFondoEmpresa('');
+                }}
+                className="w-full px-4 py-3.5 flex items-center justify-between transition-all hover:bg-slate-50/60"
+                style={{ background: fondoActivo ? 'rgba(245,158,11,0.05)' : 'transparent' }}
+              >
+                <div className="flex items-center gap-3">
+                  <div
+                    className="w-8 h-8 rounded-xl flex items-center justify-center transition-all"
+                    style={{
+                      background: fondoActivo
+                        ? 'linear-gradient(135deg, #f59e0b, #d97706)'
+                        : '#f1f5f9',
+                      boxShadow: fondoActivo ? '0 2px 8px rgba(245,158,11,0.3)' : 'none',
+                    }}
+                  >
+                    <Briefcase className={`w-4 h-4 ${fondoActivo ? 'text-white' : 'text-slate-400'}`} />
+                  </div>
+                  <span className={`text-sm font-bold ${fondoActivo ? 'text-amber-800' : 'text-slate-600'}`}>
+                    ¿La empresa dio fondo para compras al repartidor?
+                  </span>
+                </div>
+                {fondoActivo ? (
+                  <ToggleRight className="w-7 h-7 text-amber-500 shrink-0" />
+                ) : (
+                  <ToggleLeft className="w-7 h-7 text-slate-300 shrink-0" />
+                )}
+              </button>
+
+              {/* Conditional: Company fund input */}
+              {fondoActivo && (
+                <div className="px-4 pb-4 pt-1" style={{ borderTop: '1px solid #e2e8f0' }}>
+                  <label className="text-xs font-bold text-amber-700 uppercase tracking-wider mb-2 block">
+                    Fondo Entregado por la Empresa
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-lg font-bold text-amber-400">$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={fondoEmpresa}
+                      onChange={(e) => setFondoEmpresa(e.target.value)}
+                      placeholder="0.00"
+                      autoFocus
+                      className="w-full pl-9 pr-4 py-3 text-lg font-bold rounded-xl outline-none transition-all"
+                      style={{
+                        background: 'rgba(245,158,11,0.04)',
+                        border: '2px solid rgba(245,158,11,0.25)',
+                        color: '#92400e',
+                        fontFamily: "'JetBrains Mono', monospace",
+                      }}
+                      onFocus={(e) => {
+                        e.target.style.borderColor = '#f59e0b';
+                        e.target.style.boxShadow = '0 0 0 3px rgba(245,158,11,0.12)';
+                      }}
+                      onBlur={(e) => {
+                        e.target.style.borderColor = 'rgba(245,158,11,0.25)';
+                        e.target.style.boxShadow = 'none';
+                      }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-amber-600/70 mt-1.5 font-medium">
+                    Este monto se sumará al total esperado del corte
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Dinero entregado input */}
