@@ -9,7 +9,6 @@ import OrderManagement from './components/modules/OrderManagement';
 import DispatchManagement from './components/modules/DispatchManagement';
 import FinanceManagement from './components/modules/FinanceManagement';
 import FleetManagement from './components/modules/FleetManagement';
-import ZoneManagement from './components/modules/ZoneManagement';
 import BusinessHoursConfig from './components/modules/BusinessHoursConfig';
 import GlobalNotifications from './components/GlobalNotifications';
 
@@ -56,8 +55,6 @@ function AppContent() {
         return <FinanceManagement />;
       case 'fleet':
         return <FleetManagement />;
-      case 'zones':
-        return <ZoneManagement />;
       case 'settings':
         return <BusinessHoursConfig />;
       default:

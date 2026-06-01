@@ -16,6 +16,8 @@ export interface TemplateCreatePayload {
   header?: string;
   /** Optional footer text */
   footer?: string;
+  /** Optional Quick Reply buttons */
+  buttons?: Array<{ type: string; text: string }>;
 }
 
 export interface MetaTemplateComponent {

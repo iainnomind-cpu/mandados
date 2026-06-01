@@ -51,7 +51,7 @@ export function useOrders(options: UseOrdersOptions = {}): UseOrdersReturn {
           *,
           order_items(*),
           driver:assigned_driver_id(
-            id, vehicle_plate, vehicle_type,
+            id, full_name, vehicle_plate, vehicle_type,
             profiles:user_id(full_name)
           )
         `)

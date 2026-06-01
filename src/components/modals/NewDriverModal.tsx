@@ -39,17 +39,18 @@ export default function NewDriverModal({ onClose, onSuccess }: NewDriverModalPro
             status: 'offline',
             rating: 5.00,
             total_deliveries: 0,
+            active_load_count: 0,
           },
         ]);
 
       if (driverError) {
         console.error('Error creating driver:', driverError);
-        throw new Error('Error al crear el registro del conductor: ' + driverError.message);
+        throw new Error(driverError.message);
       }
 
       onSuccess();
-    } catch (err) {
-      setError('Error al registrar conductor');
+    } catch (err: any) {
+      setError(err?.message || 'Error al registrar conductor');
       console.error(err);
     } finally {
       setLoading(false);

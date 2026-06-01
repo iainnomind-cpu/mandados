@@ -1,24 +1,19 @@
 import { useState } from 'react';
-import { Truck, Users, Map as MapIcon, RefreshCcw, LayoutGrid, List } from 'lucide-react';
+import { Truck, Users, RefreshCcw, LayoutGrid, List, AlertTriangle, Activity, Shield } from 'lucide-react';
 import { useDispatch } from '../../hooks/useDispatch';
 import { useRoutes } from '../../hooks/useRoutes';
-import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../hooks/useToast';
-import OrderCard from '../dispatch/OrderCard';
 import DriverCard from '../dispatch/DriverCard';
 import RoutePanel from '../dispatch/RoutePanel';
-import AssignDriverModal from '../modals/AssignDriverModal';
 import OrderDetailsModal from '../modals/OrderDetailsModal';
-import { Order, OrderWithItems, DriverWithProfile, DriverRoute, RouteStop } from '../../types';
+import { OrderWithItems, RouteStop, DriverRoute } from '../../types';
 
 export default function DispatchManagement() {
-  const { profile } = useAuth();
   const { showToast } = useToast();
   const {
-    unassignedOrders,
-    drivers,
+    driversWithOrders,
+    problemOrders,
     loading: dispatchLoading,
-    autoAssign,
     error: dispatchError,
     reload: reloadDispatch
   } = useDispatch();
@@ -30,23 +25,10 @@ export default function DispatchManagement() {
     reload: reloadRoutes
   } = useRoutes();
 
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
-  const [viewOrder, setViewOrder] = useState<Order | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [viewOrder, setViewOrder] = useState<OrderWithItems | null>(null);
 
-  const [podStop, setPodStop] = useState<{ stop: RouteStop, route: DriverRoute } | null>(null);
-
-  const handleAutoAssign = async (order: Order) => {
-    if (!profile?.id) return;
-    try {
-      await autoAssign(order.id, profile.id);
-      showToast(`Pedido ${order.order_number} auto-asignado con éxito`, 'success');
-    } catch (err: any) {
-      showToast(err.message || 'Error al auto-asignar', 'error');
-    }
-  };
-
-  const handleCompleteStop = async (stop: RouteStop, route: any) => {
+  const handleCompleteStop = async (stop: RouteStop, route: DriverRoute) => {
     try {
       await completeStop(stop.id, stop.route_id, stop.order_id, route.driver_id);
       showToast('Entrega completada y notificada a finanzas', 'success');
@@ -60,8 +42,10 @@ export default function DispatchManagement() {
     reloadRoutes();
   };
 
-  const activeDriversCount = drivers.filter(d => d.status === 'available' || d.status === 'busy').length;
-  const availableDriversCount = drivers.filter(d => d.status === 'available').length;
+  // Stats
+  const totalDrivers = driversWithOrders.length;
+  const totalActiveOrders = driversWithOrders.reduce((sum, d) => sum + d.assignedOrders.length, 0);
+  const driversWithProblem = driversWithOrders.filter(d => d.hasProblem).length;
 
   return (
     <div className="flex flex-col h-[calc(100vh-64px)] bg-gray-50">
@@ -69,32 +53,41 @@ export default function DispatchManagement() {
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-200">
+            <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-xl flex items-center justify-center shadow-lg shadow-blue-200">
               <Truck className="w-6 h-6 text-white" />
             </div>
             <div>
               <h1 className="text-xl font-bold text-gray-900">Despacho y Rutas (TMS)</h1>
-              <p className="text-xs text-gray-500">Gestión de asignaciones y flota en tiempo real</p>
+              <p className="text-xs text-gray-500">Monitor de flota y rutas en tiempo real</p>
             </div>
           </div>
 
           <div className="flex items-center gap-6">
             <div className="flex items-center gap-8">
               <div className="text-center">
-                <p className="text-[10px] uppercase tracking-wider font-bold text-gray-400 mb-0.5">Pendientes</p>
+                <p className="text-[10px] uppercase tracking-wider font-bold text-gray-400 mb-0.5">Conductores</p>
                 <div className="flex items-center gap-1.5 justify-center">
-                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                  <p className="text-lg font-bold text-gray-900">{unassignedOrders.length}</p>
+                  <Users className="w-3.5 h-3.5 text-blue-500" />
+                  <p className="text-lg font-bold text-gray-900">{totalDrivers}</p>
                 </div>
               </div>
               <div className="text-center border-l border-gray-100 pl-8">
-                <p className="text-[10px] uppercase tracking-wider font-bold text-gray-400 mb-0.5">Conductores Disponibles</p>
-                <p className="text-lg font-bold text-gray-900">{availableDriversCount}</p>
+                <p className="text-[10px] uppercase tracking-wider font-bold text-gray-400 mb-0.5">Pedidos Activos</p>
+                <div className="flex items-center gap-1.5 justify-center">
+                  <Activity className="w-3.5 h-3.5 text-emerald-500" />
+                  <p className="text-lg font-bold text-gray-900">{totalActiveOrders}</p>
+                </div>
               </div>
               <div className="text-center border-l border-gray-100 pl-8">
                 <p className="text-[10px] uppercase tracking-wider font-bold text-gray-400 mb-0.5">Rutas Activas</p>
                 <p className="text-lg font-bold text-gray-900">{routes.length}</p>
               </div>
+              {problemOrders.length > 0 && (
+                <div className="text-center border-l border-gray-100 pl-8">
+                  <p className="text-[10px] uppercase tracking-wider font-bold text-rose-500 mb-0.5">⚠️ Problemas</p>
+                  <p className="text-lg font-bold text-rose-600 animate-alert-blink">{problemOrders.length}</p>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center gap-2 border-l border-gray-100 pl-6">
@@ -124,127 +117,125 @@ export default function DispatchManagement() {
         </div>
       </div>
 
-      {/* Main 3-Panel Layout */}
+      {/* Alert Banner for Problem Orders */}
+      {problemOrders.length > 0 && (
+        <div className="mx-6 mt-4 bg-gradient-to-r from-rose-50 via-red-50 to-orange-50 border-2 border-rose-300 rounded-xl p-4 shadow-sm animate-alert-border">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-rose-500 to-red-600 flex items-center justify-center shadow-lg shadow-rose-500/30 animate-alert-blink">
+              <AlertTriangle className="w-6 h-6 text-white" />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-lg font-bold text-rose-800">
+                  🚨 {problemOrders.length} Alerta{problemOrders.length !== 1 ? 's' : ''} de Central
+                </span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-200 text-rose-800 border border-rose-300 animate-pulse">
+                  REQUIERE ATENCIÓN
+                </span>
+              </div>
+              <p className="text-sm text-rose-600 mt-1">
+                Pedidos con incidencias reportadas desde WhatsApp:
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {problemOrders.map((po) => (
+                  <span
+                    key={po.id}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/80 border border-rose-200 rounded-lg text-xs font-medium text-rose-800 shadow-sm"
+                  >
+                    <AlertTriangle className="w-3 h-3 text-rose-500" />
+                    {po.order_number} — {po.driverName ?? 'Sin conductor'}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Error banner */}
+      {dispatchError && (
+        <div className="mx-6 mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+          {dispatchError}{' '}
+          <button onClick={handleReload} className="underline font-medium">Reintentar</button>
+        </div>
+      )}
+
+      {/* Main 2-Panel Layout */}
       <div className="flex-1 flex overflow-hidden p-6 gap-6">
 
-        {/* Panel 1: Unassigned Orders */}
-        <div className="flex-1 min-w-0 flex flex-col bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+        {/* Panel 1: Active Fleet (drivers with assigned orders) */}
+        <div className="flex-[2] min-w-0 flex flex-col bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
           <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
             <h2 className="font-bold text-gray-800 flex items-center gap-2">
-              <RefreshCcw className="w-4 h-4 text-amber-500" />
-              Pedidos por Asignar
-            </h2>
-            <span className="px-2 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-full">
-              {unassignedOrders.length} NUEVOS
-            </span>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-gray-200">
-            {dispatchLoading ? (
-              <div className="space-y-4 animate-pulse">
-                {[1, 2, 3].map(i => <div key={i} className="h-32 bg-gray-50 rounded-xl" />)}
-              </div>
-            ) : unassignedOrders.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-gray-400 py-10">
-                <LayoutGrid className="w-12 h-12 mb-3 opacity-20" />
-                <p className="text-sm font-medium">Bandeja vacía</p>
-                <p className="text-xs">No hay pedidos pendientes de despacho</p>
-              </div>
-            ) : (
-              unassignedOrders.map(order => (
-                <OrderCard
-                  key={order.id}
-                  order={order}
-                  onAssign={setSelectedOrder}
-                  onAutoAssign={handleAutoAssign}
-                  onView={setViewOrder}
-                />
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Panel 2: Available Drivers */}
-        <div className="flex-1 min-w-0 flex flex-col bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-          <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-            <h2 className="font-bold text-gray-800 flex items-center gap-2">
-              <Users className="w-4 h-4 text-blue-500" />
-              Flota Activa
+              <Shield className="w-4 h-4 text-blue-500" />
+              Panel de Flota Activa
             </h2>
             <div className="flex gap-2">
-              <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 text-[10px] font-bold rounded-full">
-                {availableDriversCount} DISP.
+              <span className="px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] font-bold rounded-full">
+                {totalDrivers} EN TURNO
               </span>
+              {driversWithProblem > 0 && (
+                <span className="px-2 py-0.5 bg-rose-100 text-rose-700 text-[10px] font-bold rounded-full animate-alert-blink">
+                  {driversWithProblem} CON ALERTA
+                </span>
+              )}
             </div>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-gray-200">
             {dispatchLoading ? (
               <div className="space-y-4 animate-pulse">
-                {[1, 2, 3].map(i => <div key={i} className="h-28 bg-gray-50 rounded-xl" />)}
+                {[1, 2, 3].map(i => <div key={i} className="h-36 bg-gray-50 rounded-xl" />)}
               </div>
-            ) : drivers.length === 0 ? (
+            ) : driversWithOrders.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-gray-400 py-10">
                 <Users className="w-12 h-12 mb-3 opacity-20" />
-                <p className="text-sm font-medium">Sin flota</p>
-                <p className="text-xs">No hay conductores conectados</p>
+                <p className="text-sm font-medium">Sin flota activa</p>
+                <p className="text-xs">No hay conductores en turno actualmente</p>
               </div>
             ) : (
-              drivers.map(driver => (
-                <DriverCard
-                  key={driver.id}
-                  driver={driver}
-                  compact={viewMode === 'list'}
-                />
-              ))
+              <div className={viewMode === 'grid' ? 'grid grid-cols-1 xl:grid-cols-2 gap-4' : 'space-y-3'}>
+                {driversWithOrders.map(driver => (
+                  <DriverCard
+                    key={driver.id}
+                    driver={driver}
+                    compact={viewMode === 'list'}
+                  />
+                ))}
+              </div>
             )}
           </div>
         </div>
 
-        {/* Panel 3: Active Routes */}
-        <div className="w-[400px] flex flex-col gap-6">
-          {/* Active Routes List */}
-          <div className="flex-1 min-h-0 flex flex-col bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-              <h2 className="font-bold text-gray-800 flex items-center gap-2">
-                <List className="w-4 h-4 text-indigo-500" />
-                Rutas en Curso
-              </h2>
-            </div>
-            <div className="flex-1 overflow-y-auto p-4 scrollbar-thin scrollbar-thumb-gray-200">
-              <RoutePanel
-                routes={routes}
-                loading={routesLoading}
-                onCompleteStop={handleCompleteStop}
-              />
-            </div>
+        {/* Panel 2: Active Routes */}
+        <div className="flex-1 min-w-[360px] flex flex-col bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+          <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+            <h2 className="font-bold text-gray-800 flex items-center gap-2">
+              <List className="w-4 h-4 text-indigo-500" />
+              Rutas en Curso
+            </h2>
+            <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 text-[10px] font-bold rounded-full">
+              {routes.length} ACTIVAS
+            </span>
           </div>
-
-
+          <div className="flex-1 overflow-y-auto p-4 scrollbar-thin scrollbar-thumb-gray-200">
+            <RoutePanel
+              routes={routes}
+              loading={routesLoading}
+              onCompleteStop={handleCompleteStop}
+            />
+          </div>
         </div>
       </div>
-
-      {/* Assignment Modal */}
-      {selectedOrder && (
-        <AssignDriverModal
-          order={selectedOrder}
-          drivers={drivers}
-          onClose={() => setSelectedOrder(null)}
-          onSuccess={() => {
-            setSelectedOrder(null);
-            // useRealtime hooks handle updates, but reload just in case
-            reloadDispatch();
-            reloadRoutes();
-          }}
-        />
-      )}
 
       {/* Order Details Modal */}
       {viewOrder && (
         <OrderDetailsModal
-          order={viewOrder as OrderWithItems}
+          order={viewOrder}
           onClose={() => setViewOrder(null)}
           onUpdate={() => {
             setViewOrder(null);
             reloadDispatch();
+            reloadRoutes();
           }}
           onToast={showToast}
           onDelete={() => setViewOrder(null)}

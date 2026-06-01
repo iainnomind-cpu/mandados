@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import {
   Package, Plus, Search, Filter, Eye, Trash2,
   UserCheck, CheckCircle, XCircle, Clock, Truck,
-  DollarSign, TrendingUp, Calendar,
+  DollarSign, TrendingUp, Calendar, AlertTriangle,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useOrders } from '../../hooks/useOrders';
@@ -21,6 +21,7 @@ const STATUS_LABELS: Record<string, string> = {
   in_transit: 'En tránsito',
   delivered: 'Entregado',
   cancelled: 'Cancelado',
+  problem: 'Con Problemas',
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -30,6 +31,7 @@ const STATUS_COLORS: Record<string, string> = {
   in_transit: 'bg-orange-100 text-orange-800 border-orange-200',
   delivered: 'bg-green-100 text-green-800 border-green-200',
   cancelled: 'bg-red-100 text-red-800 border-red-200',
+  problem: 'bg-rose-100 text-rose-800 border-rose-200',
 };
 
 const STATUS_ICONS: Record<string, React.ReactNode> = {
@@ -39,6 +41,7 @@ const STATUS_ICONS: Record<string, React.ReactNode> = {
   in_transit: <Truck className="w-3 h-3" />,
   delivered: <CheckCircle className="w-3 h-3" />,
   cancelled: <XCircle className="w-3 h-3" />,
+  problem: <AlertTriangle className="w-3 h-3" />,
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -151,12 +154,13 @@ export default function OrderManagement() {
   const stats = useMemo(() => {
     const total = orders.length;
     const pending = orders.filter((o) => o.status === 'pending').length;
+    const problemOrders = orders.filter((o) => o.status === 'problem').length;
     const deliveredToday = orders.filter(
       (o) => o.status === 'delivered' && new Date(o.created_at) >= today
     );
     const completedToday = deliveredToday.length;
     const revenueToday = deliveredToday.reduce((s, o) => s + (o.total_amount || 0), 0);
-    return { total, pending, completedToday, revenueToday };
+    return { total, pending, completedToday, revenueToday, problemOrders };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orders]);
 
@@ -233,18 +237,53 @@ export default function OrderManagement() {
 
         {/* Stats row */}
         {!isDriver && (
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-            <StatCard title="Total de Pedidos" value={stats.total} icon={Package} color="bg-blue-600" />
-            <StatCard title="Pendientes" value={stats.pending} icon={Clock} color="bg-amber-500" subtitle="Sin asignar" />
-            <StatCard title="Completados Hoy" value={stats.completedToday} icon={TrendingUp} color="bg-green-600" />
-            <StatCard
-              title="Ingresos Hoy"
-              value={`$${stats.revenueToday.toFixed(2)}`}
-              icon={DollarSign}
-              color="bg-teal-600"
-              subtitle={`${stats.completedToday} pedido${stats.completedToday !== 1 ? 's' : ''} finalizado${stats.completedToday !== 1 ? 's' : ''}`}
-            />
-          </div>
+          <>
+            {/* Problem orders alert */}
+            {stats.problemOrders > 0 && (
+              <div className="mb-6 bg-gradient-to-r from-rose-50 via-red-50 to-orange-50 border-2 border-rose-300 rounded-xl p-4 shadow-sm animate-pulse-subtle">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-rose-500 to-red-600 flex items-center justify-center shadow-lg shadow-rose-500/30">
+                      <AlertTriangle className="w-6 h-6 text-white" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-lg font-bold text-rose-800">
+                          {stats.problemOrders} pedido{stats.problemOrders !== 1 ? 's' : ''} con problemas
+                        </span>
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-200 text-rose-800 border border-rose-300 animate-pulse">
+                          ⚠️ REQUIERE ATENCIÓN
+                        </span>
+                      </div>
+                      <p className="text-sm text-rose-600 mt-0.5">
+                        Reportados por repartidores — revisa los detalles y toma acción
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setStatusFilter('problem')}
+                    className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white text-sm font-semibold rounded-lg shadow-sm transition-all hover:shadow-md"
+                  >
+                    Ver pedidos
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Stats row */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+              <StatCard title="Total de Pedidos" value={stats.total} icon={Package} color="bg-blue-600" />
+              <StatCard title="Pendientes" value={stats.pending} icon={Clock} color="bg-amber-500" subtitle="Sin asignar" />
+              <StatCard title="Completados Hoy" value={stats.completedToday} icon={TrendingUp} color="bg-green-600" />
+              <StatCard
+                title="Ingresos Hoy"
+                value={`$${stats.revenueToday.toFixed(2)}`}
+                icon={DollarSign}
+                color="bg-teal-600"
+                subtitle={`${stats.completedToday} pedido${stats.completedToday !== 1 ? 's' : ''} finalizado${stats.completedToday !== 1 ? 's' : ''}`}
+              />
+            </div>
+          </>
         )}
 
         {/* Filters */}
@@ -358,10 +397,8 @@ export default function OrderManagement() {
                   </tr>
                 ) : (
                   filtered.map((order) => {
-                    const driverName =
-                      (order.driver as { profiles?: { full_name?: string }; full_name?: string })?.profiles?.full_name ??
-                      (order.driver as { full_name?: string })?.full_name ??
-                      '—';
+                    const drv = order.driver as { profiles?: { full_name?: string }; full_name?: string } | null;
+                    const driverName = drv?.profiles?.full_name ?? drv?.full_name ?? '—';
                     return (
                       <tr key={order.id} className="hover:bg-gray-50 transition-colors">
                         <td className="px-4 py-3">

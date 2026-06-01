@@ -125,7 +125,7 @@ export default function Chatbot({ initialConversationId }: { initialConversation
       .from('system_settings')
       .select('bot_paused_globally')
       .eq('id', 1)
-      .single();
+      .maybeSingle();
     if (data) {
       setGlobalBotPaused(data.bot_paused_globally);
     }
@@ -274,8 +274,7 @@ export default function Chatbot({ initialConversationId }: { initialConversation
 
     await supabase
       .from('system_settings')
-      .update({ bot_paused_globally: newValue })
-      .eq('id', 1);
+      .upsert({ id: 1, bot_paused_globally: newValue }, { onConflict: 'id' });
 
     setGlobalBotPaused(newValue);
     setTogglingGlobalBot(false);

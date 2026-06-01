@@ -330,14 +330,13 @@ export async function cancelOrder(
 }
 
 // ---------------------------------------------------------------------------
-// Delete order (hard delete — cascades to order_items + order_events)
+// Delete order (soft-delete — marks as cancelled to avoid FK violations)
 // ---------------------------------------------------------------------------
 export async function deleteOrderById(orderId: string) {
-  // Cancel any active assignments first to free up the driver
-  await cancelOrder(orderId, 'Pedido eliminado', undefined);
-
-  const { error } = await supabase.from('orders').delete().eq('id', orderId);
-  if (error) throw error;
+  // Cancel any active assignments and mark the order as 'cancelled'.
+  // We intentionally do NOT hard-delete to preserve referential integrity
+  // with assignments, cod_transactions, chat_messages, etc.
+  await cancelOrder(orderId, 'Pedido eliminado por administrador', undefined);
 }
 
 // ---------------------------------------------------------------------------
