@@ -397,10 +397,8 @@ export default function OrderManagement() {
                   </tr>
                 ) : (
                   filtered.map((order) => {
-                    const driverName =
-                      (order.driver as { profiles?: { full_name?: string }; full_name?: string })?.profiles?.full_name ??
-                      (order.driver as { full_name?: string })?.full_name ??
-                      '—';
+                    const drv = order.driver as { profiles?: { full_name?: string }; full_name?: string } | null;
+                    const driverName = drv?.profiles?.full_name ?? drv?.full_name ?? '—';
                     return (
                       <tr key={order.id} className="hover:bg-gray-50 transition-colors">
                         <td className="px-4 py-3">

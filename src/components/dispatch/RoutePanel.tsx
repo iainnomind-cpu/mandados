@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown, ChevronRight, CheckCircle2, MapPin, Navigation } from 'lucide-react';
+import { ChevronDown, ChevronRight, CheckCircle2, MapPin, Navigation, AlertTriangle } from 'lucide-react';
 import { DriverRoute, RouteStop } from '../../types';
 
 interface RoutePanelProps {
@@ -23,18 +23,20 @@ function StopRow({
     route: DriverRoute;
     onComplete: (stop: RouteStop, route: DriverRoute) => void;
 }) {
+    const isProblem = (stop as any).order?.status === 'problem' || stop.status === ('problem' as any);
     const st = STOP_STATUS[stop.status] ?? STOP_STATUS.pending;
     return (
-        <div className="flex items-center gap-3 py-2.5 px-3 hover:bg-gray-50 rounded-lg transition-colors">
+        <div className={`flex items-center gap-3 py-2.5 px-3 rounded-lg transition-colors ${isProblem ? 'bg-rose-50/70' : 'hover:bg-gray-50'}`}>
             {/* Sequence bubble */}
-            <div className="w-6 h-6 rounded-full bg-indigo-600 text-white text-xs font-bold flex items-center justify-center shrink-0">
-                {stop.stop_sequence}
+            <div className={`w-6 h-6 rounded-full text-white text-xs font-bold flex items-center justify-center shrink-0 ${isProblem ? 'bg-rose-500 animate-alert-blink' : 'bg-indigo-600'}`}>
+                {isProblem ? <AlertTriangle className="w-3.5 h-3.5" /> : stop.stop_sequence}
             </div>
 
             {/* Info */}
             <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-gray-800 truncate">
+                <p className={`text-xs font-semibold truncate ${isProblem ? 'text-rose-800' : 'text-gray-800'}`}>
                     {stop.order?.order_number ?? stop.order_id.slice(0, 8)}
+                    {isProblem && <span className="ml-1.5 text-[10px] font-bold text-rose-600">⚠️ PROBLEMA</span>}
                 </p>
                 {stop.order?.delivery_address && (
                     <p className="text-xs text-gray-500 truncate flex items-center gap-1">
@@ -78,10 +80,11 @@ function RouteCard({
     const [expanded, setExpanded] = useState(true);
     const stops = route.route_stops ?? [];
     const completed = stops.filter((s) => s.status === 'completed').length;
-    const driverName = route.driver?.profiles?.full_name ?? route.driver?.vehicle_plate ?? 'Conductor';
+    const driverName = route.driver?.profiles?.full_name ?? route.driver?.full_name ?? route.driver?.vehicle_plate ?? 'Conductor';
+    const hasProblemStop = stops.some((s) => (s as any).order?.status === 'problem');
 
     return (
-        <div className="bg-white border border-gray-100 rounded-xl shadow-sm overflow-hidden">
+        <div className={`rounded-xl shadow-sm overflow-hidden ${hasProblemStop ? 'border-2 border-red-400 animate-alert-border bg-red-50/20' : 'bg-white border border-gray-100'}`}>
             {/* Header */}
             <button
                 onClick={() => setExpanded(!expanded)}

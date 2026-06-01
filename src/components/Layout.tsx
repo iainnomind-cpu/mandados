@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LayoutDashboard, Package, Truck, DollarSign, Users, MessageCircle, LogOut, Menu, X, Map, Settings } from 'lucide-react';
+import { LayoutDashboard, Package, Truck, DollarSign, Users, MessageCircle, LogOut, Menu, X, Settings } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { NotificationBell } from './GlobalNotifications';
 
@@ -16,7 +16,6 @@ const MODULE_LABELS: Record<string, string> = {
   dispatch: 'Despacho',
   finance: 'Finanzas',
   fleet: 'Flotilla',
-  zones: 'Zonas',
   settings: 'Configuración',
 };
 
@@ -31,7 +30,6 @@ export default function Layout({ children, currentModule, onModuleChange }: Layo
     { id: 'dispatch', label: 'Despacho', icon: Truck, roles: ['admin', 'dispatcher'] },
     { id: 'finance', label: 'Finanzas', icon: DollarSign, roles: ['admin', 'finance'] },
     { id: 'fleet', label: 'Flotilla', icon: Users, roles: ['admin', 'dispatcher'] },
-    { id: 'zones', label: 'Zonas', icon: Map, roles: ['admin'] },
     { id: 'settings', label: 'Configuración', icon: Settings, roles: ['admin'] },
   ];
 

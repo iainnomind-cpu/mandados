@@ -1,3 +1,22 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Alert blink animation for problem orders in dispatch */
+@keyframes alert-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@keyframes alert-border-pulse {
+  0%, 100% { border-color: rgb(239, 68, 68); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { border-color: rgb(248, 113, 113); box-shadow: 0 0 8px 2px rgba(239, 68, 68, 0.25); }
+}
+
+.animate-alert-blink {
+  animation: alert-blink 1.2s ease-in-out infinite;
+}
+
+.animate-alert-border {
+  animation: alert-border-pulse 1.5s ease-in-out infinite;
+}
