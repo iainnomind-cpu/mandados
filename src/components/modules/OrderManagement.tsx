@@ -154,14 +154,14 @@ export default function OrderManagement() {
   const stats = useMemo(() => {
     const total = orders.length;
     const pending = orders.filter((o) => o.status === 'pending').length;
-    const problemOrders = orders.filter((o) => o.status === 'problem').length;
+    const problemOrders = orders.filter((o) => (o.status as string) === 'problem').length;
     const deliveredToday = orders.filter(
       (o) => o.status === 'delivered' && new Date(o.created_at) >= today
     );
     const completedToday = deliveredToday.length;
     const revenueToday = deliveredToday.reduce((s, o) => s + (o.total_amount || 0), 0);
     return { total, pending, completedToday, revenueToday, problemOrders };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orders]);
 
   // ---------- Filtering -------------------------------------------------------

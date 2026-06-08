@@ -14,7 +14,7 @@ interface ProofOfDeliveryModalProps {
 }
 
 export default function ProofOfDeliveryModal({ stop, route, onClose, onConfirm }: ProofOfDeliveryModalProps) {
-    const [collectedAmount, setCollectedAmount] = useState<string>(
+    const [collectedAmount] = useState<string>(
         stop.order ? (stop.order.total_amount ?? 0).toString() : '0'
     );
     const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer' | 'card'>('cash');
@@ -34,8 +34,9 @@ export default function ProofOfDeliveryModal({ stop, route, onClose, onConfirm }
 
         try {
             await onConfirm(stop, route, { collectedAmount: amountVal, paymentMethod, proofDelivered });
-        } catch (err: any) {
-            setError(err.message || 'Error al completar la entrega.');
+        } catch (err: unknown) {
+            const errorMsg = err instanceof Error ? err.message : String(err);
+            setError(errorMsg || 'Error al completar la entrega.');
             setLoading(false);
         }
     };

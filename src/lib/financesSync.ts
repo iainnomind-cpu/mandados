@@ -153,10 +153,10 @@ export async function getFinanceKPIs(dateStr: string) {
 // ---------------------------------------------------------------------------
 export async function processSettlement(
   driverId: string,
-  driverName: string,
+  _driverName: string,
   dateStr: string,
-  sencilloCount: number,
-  complejoCount: number,
+  _sencilloCount: number,
+  _complejoCount: number,
   totalExpected: number,
   totalDelivered: number,
   companyFund: number = 0,
@@ -193,6 +193,7 @@ export async function getSettlementHistory(limit = 30): Promise<SettlementRecord
 
   if (error) throw error;
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (data || []).map((row: any) => ({
     id: row.id,
     driver_id: row.driver_id,

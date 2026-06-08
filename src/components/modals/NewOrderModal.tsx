@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
-import { X, Plus, Trash2, ShoppingCart, MapPin, Zap, Package } from 'lucide-react';
+import { X, Plus, Trash2, ShoppingCart, Zap, Package } from 'lucide-react';
 import { createOrderWithItems } from '../../lib/orderSync';
-import { getActiveZones } from '../../lib/zoneSync';
 import { calcularComision, SERVICE_TYPE_DESCRIPTIONS } from '../../lib/comision';
 import { OrderItemDraft, OrderType, OrderSource, OrderPriority, DeliveryZone } from '../../types';
 import type { ServiceType } from '../../lib/comision';
@@ -23,13 +22,7 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
-  const [deliveryLat, setDeliveryLat] = useState<number | null>(null);
-
-  // --- Zonas ---
-  const [zones, setZones] = useState<DeliveryZone[]>([]);
-  useEffect(() => {
-    getActiveZones().then(setZones).catch(console.error);
-  }, []);
+  // --- Zonas (removed unused state) ---
 
   // --- Tipo de Servicio y Comisión ---
   const [serviceType, setServiceType] = useState<ServiceType>('sencillo');

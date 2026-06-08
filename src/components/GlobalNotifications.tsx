@@ -73,10 +73,6 @@ export function NotificationBell() {
     const [showPanel, setShowPanel] = useState(false);
     const escalationCount = notifications.filter(n => n.type === 'escalation' && !n.read).length;
 
-    const handleGoToChat = (conversationId?: string) => {
-        navigateToChatConversation(conversationId);
-        setShowPanel(false);
-    };
 
     return (
         <div className="relative">

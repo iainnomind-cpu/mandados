@@ -3,7 +3,7 @@ import {
   DollarSign, TrendingUp, Truck, CheckCircle,
   Clock, Package, Zap, Receipt, RefreshCcw,
 } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+
 import {
   getDriverSettlementData,
   getFinanceKPIs,
