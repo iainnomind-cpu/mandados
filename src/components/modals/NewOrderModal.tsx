@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { X, Plus, Trash2, ShoppingCart, Zap, Package } from 'lucide-react';
 import { createOrderWithItems } from '../../lib/orderSync';
 import { calcularComision, SERVICE_TYPE_DESCRIPTIONS } from '../../lib/comision';
-import { OrderItemDraft, OrderType, OrderSource, OrderPriority, DeliveryZone } from '../../types';
+import { OrderItemDraft, OrderType, OrderSource, OrderPriority } from '../../types';
 import type { ServiceType } from '../../lib/comision';
 
 interface NewOrderModalProps {
