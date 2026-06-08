@@ -57,7 +57,6 @@ const DEFAULT_BH: BusinessHours = {
 
 const DEFAULT_MSG = '🕐 Gracias por escribirnos. En este momento nos encontramos fuera de nuestro horario de atención. ¡Te atenderemos con gusto en cuanto estemos de vuelta!';
 
-// ─── Time options generator ───
 function generateTimeOptions(): string[] {
   const options: string[] = [];
   for (let h = 0; h < 24; h++) {
@@ -77,7 +76,6 @@ function formatTime12(time24: string): string {
   return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
 }
 
-// ─── Check if currently within schedule ───
 function isWithinBusinessHours(bh: BusinessHours): { isOpen: boolean; currentDay: string; currentTime: string } {
   const tz = bh.timezone || 'America/Mexico_City';
   const now = new Date();
@@ -118,10 +116,39 @@ function isWithinBusinessHours(bh: BusinessHours): { isOpen: boolean; currentDay
   };
 }
 
+// ─── Tab types ───
+type TabId = 'hours' | 'templates';
+
+interface Tab {
+  id: TabId;
+  label: string;
+  icon: string;
+  description: string;
+}
+
+const TABS: Tab[] = [
+  {
+    id: 'hours',
+    label: 'Horario de Atención',
+    icon: '🕐',
+    description: 'Configura los días y horas en que el bot responde',
+  },
+  {
+    id: 'templates',
+    label: 'Plantillas de WhatsApp',
+    icon: '📋',
+    description: 'Crea y gestiona plantillas aprobadas por Meta',
+  },
+];
+
 // ═══════════════════════════════════════════════════════════
-// COMPONENT
+// MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════
 export default function BusinessHoursConfig() {
+  // ── Tab state ──
+  const [activeTab, setActiveTab] = useState<TabId>('hours');
+
+  // ── Business hours state ──
   const [businessHours, setBusinessHours] = useState<BusinessHours>(DEFAULT_BH);
   const [outsideMessage, setOutsideMessage] = useState(DEFAULT_MSG);
   const [saving, setSaving] = useState(false);
@@ -130,12 +157,8 @@ export default function BusinessHoursConfig() {
   const [error, setError] = useState<string | null>(null);
   const [currentStatus, setCurrentStatus] = useState<{ isOpen: boolean; currentDay: string; currentTime: string } | null>(null);
 
-  // ─── Load settings ───
-  useEffect(() => {
-    loadSettings();
-  }, []);
+  useEffect(() => { loadSettings(); }, []);
 
-  // ─── Live clock update ───
   useEffect(() => {
     const update = () => {
       if (businessHours.enabled) {
@@ -143,7 +166,7 @@ export default function BusinessHoursConfig() {
       }
     };
     update();
-    const interval = setInterval(update, 30000); // every 30s
+    const interval = setInterval(update, 30000);
     return () => clearInterval(interval);
   }, [businessHours]);
 
@@ -171,16 +194,12 @@ export default function BusinessHoursConfig() {
     }
   };
 
-  // ─── Save settings ───
   const saveSettings = async () => {
     setSaving(true);
     setSaved(false);
     setError(null);
-
     try {
       console.log('💾 Guardando configuración:', JSON.stringify(businessHours, null, 2));
-
-      // Use upsert to create the row if it doesn't exist
       const { error: err, data: upsertData } = await supabase
         .from('system_settings')
         .upsert({
@@ -190,14 +209,9 @@ export default function BusinessHoursConfig() {
         }, { onConflict: 'id' })
         .select();
 
-      if (err) {
-        console.error('❌ Error al guardar:', err);
-        throw err;
-      }
-
+      if (err) { console.error('❌ Error al guardar:', err); throw err; }
       console.log('✅ Guardado exitoso, respuesta:', JSON.stringify(upsertData));
 
-      // Verify by reading back
       const { data: verifyData } = await supabase
         .from('system_settings')
         .select('business_hours, outside_hours_message')
@@ -205,10 +219,7 @@ export default function BusinessHoursConfig() {
         .maybeSingle();
 
       console.log('🔍 Verificación post-guardado:', JSON.stringify(verifyData?.business_hours, null, 2));
-
-      if (verifyData?.business_hours) {
-        setBusinessHours(verifyData.business_hours);
-      }
+      if (verifyData?.business_hours) setBusinessHours(verifyData.business_hours);
 
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
@@ -220,36 +231,24 @@ export default function BusinessHoursConfig() {
     }
   };
 
-  // ─── Handlers ───
-  const toggleEnabled = () => {
-    setBusinessHours(prev => ({ ...prev, enabled: !prev.enabled }));
-  };
+  const toggleEnabled = () => setBusinessHours(prev => ({ ...prev, enabled: !prev.enabled }));
 
   const toggleDayOpen = (day: string) => {
     setBusinessHours(prev => ({
       ...prev,
-      schedule: {
-        ...prev.schedule,
-        [day]: { ...prev.schedule[day], open: !prev.schedule[day].open },
-      },
+      schedule: { ...prev.schedule, [day]: { ...prev.schedule[day], open: !prev.schedule[day].open } },
     }));
   };
 
   const updateDayTime = (day: string, field: 'start' | 'end', value: string) => {
     setBusinessHours(prev => ({
       ...prev,
-      schedule: {
-        ...prev.schedule,
-        [day]: { ...prev.schedule[day], [field]: value },
-      },
+      schedule: { ...prev.schedule, [day]: { ...prev.schedule[day], [field]: value } },
     }));
   };
 
-  const setTimezone = (tz: string) => {
-    setBusinessHours(prev => ({ ...prev, timezone: tz }));
-  };
+  const setTimezone = (tz: string) => setBusinessHours(prev => ({ ...prev, timezone: tz }));
 
-  // ─── Compute hours per day for visual bar ───
   const getHoursWidth = (day: string): number => {
     const s = businessHours.schedule[day];
     if (!s || !s.open) return 0;
@@ -258,7 +257,6 @@ export default function BusinessHoursConfig() {
     return Math.max(0, (eh * 60 + em - sh * 60 - sm) / 60);
   };
 
-  // ─── Preview message ───
   const previewMessage = useMemo(() => {
     const scheduleLines: string[] = [];
     for (const day of DAY_ORDER) {
@@ -273,10 +271,7 @@ export default function BusinessHoursConfig() {
     return `${outsideMessage}\n\n📋 *Nuestro horario de atención:*\n${scheduleLines.join('\n')}`;
   }, [businessHours, outsideMessage]);
 
-  // ═══════════════════════════════════════════════════════════
-  // RENDER
-  // ═══════════════════════════════════════════════════════════
-
+  // ── Loading skeleton ──
   if (loading) {
     return (
       <div className="flex items-center justify-center h-[80vh]">
@@ -288,11 +283,14 @@ export default function BusinessHoursConfig() {
     );
   }
 
+  // ═══════════════════════════════════════════════════════════
+  // RENDER
+  // ═══════════════════════════════════════════════════════════
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50/30 to-indigo-50/20 p-6">
       <div className="max-w-5xl mx-auto space-y-6">
 
-        {/* ── Header ── */}
+        {/* ── Page Header ── */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/25">
@@ -300,31 +298,28 @@ export default function BusinessHoursConfig() {
             </div>
             <div>
               <h1 className="text-2xl font-bold text-slate-800">Configuración</h1>
-              <p className="text-sm text-slate-500">Horario de atención del bot de WhatsApp</p>
+              <p className="text-sm text-slate-500">Administra el comportamiento y notificaciones del sistema</p>
             </div>
           </div>
 
-          {/* Save button */}
-          <button
-            onClick={saveSettings}
-            disabled={saving}
-            className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm shadow-lg transition-all duration-300 ${
-              saved
-                ? 'bg-emerald-500 text-white shadow-emerald-500/30'
-                : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 shadow-blue-500/30 hover:shadow-blue-500/50'
-            } disabled:opacity-60`}
-          >
-            {saving ? (
-              <RefreshCw className="w-4 h-4 animate-spin" />
-            ) : saved ? (
-              <Check className="w-4 h-4" />
-            ) : (
-              <Save className="w-4 h-4" />
-            )}
-            {saving ? 'Guardando...' : saved ? '¡Guardado!' : 'Guardar cambios'}
-          </button>
+          {/* Save button — only visible on hours tab */}
+          {activeTab === 'hours' && (
+            <button
+              onClick={saveSettings}
+              disabled={saving}
+              className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-sm shadow-lg transition-all duration-300 ${
+                saved
+                  ? 'bg-emerald-500 text-white shadow-emerald-500/30'
+                  : 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white hover:from-blue-700 hover:to-indigo-700 shadow-blue-500/30 hover:shadow-blue-500/50'
+              } disabled:opacity-60`}
+            >
+              {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : saved ? <Check className="w-4 h-4" /> : <Save className="w-4 h-4" />}
+              {saving ? 'Guardando...' : saved ? '¡Guardado!' : 'Guardar cambios'}
+            </button>
+          )}
         </div>
 
+        {/* ── Error banner ── */}
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-center gap-3">
             <AlertCircle className="w-5 h-5 text-red-500 shrink-0" />
@@ -332,282 +327,330 @@ export default function BusinessHoursConfig() {
           </div>
         )}
 
-        {/* ── Master Toggle Card ── */}
-        <div className={`bg-white rounded-2xl border-2 transition-all duration-300 shadow-sm overflow-hidden ${
-          businessHours.enabled ? 'border-blue-200 shadow-blue-100/50' : 'border-slate-200'
-        }`}>
-          <div className="p-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-300 ${
-                  businessHours.enabled
-                    ? 'bg-gradient-to-br from-blue-500 to-indigo-500 shadow-lg shadow-blue-500/25'
-                    : 'bg-slate-100'
-                }`}>
-                  <Clock className={`w-7 h-7 ${businessHours.enabled ? 'text-white' : 'text-slate-400'}`} />
-                </div>
-                <div>
-                  <h2 className="text-lg font-bold text-slate-800">Control de Horario de Atención</h2>
-                  <p className="text-sm text-slate-500 mt-0.5">
-                    {businessHours.enabled
-                      ? 'El bot responderá solo durante el horario configurado'
-                      : 'El bot responde las 24 horas, los 7 días de la semana'}
-                  </p>
-                </div>
-              </div>
+        {/* ══════════════════════════════════════════════════ */}
+        {/* TAB NAVIGATION                                     */}
+        {/* ══════════════════════════════════════════════════ */}
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+          <div className="flex">
+            {TABS.map((tab, idx) => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  id={`settings-tab-${tab.id}`}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`relative flex-1 flex items-center gap-3 px-6 py-4 text-left transition-all duration-200 group ${
+                    idx > 0 ? 'border-l border-slate-100' : ''
+                  } ${
+                    isActive
+                      ? 'bg-gradient-to-br from-blue-50/80 to-indigo-50/50'
+                      : 'hover:bg-slate-50/70'
+                  }`}
+                >
+                  {/* Active indicator bar at bottom */}
+                  <div
+                    className={`absolute bottom-0 left-0 right-0 h-0.5 transition-all duration-300 ${
+                      isActive
+                        ? 'bg-gradient-to-r from-blue-500 to-indigo-500 opacity-100'
+                        : 'opacity-0'
+                    }`}
+                  />
 
-              <button
-                onClick={toggleEnabled}
-                className="focus:outline-none transition-transform hover:scale-105 active:scale-95"
-              >
-                {businessHours.enabled ? (
-                  <ToggleRight className="w-14 h-14 text-blue-600" />
-                ) : (
-                  <ToggleLeft className="w-14 h-14 text-slate-300" />
-                )}
-              </button>
-            </div>
-
-            {/* Live status indicator */}
-            {businessHours.enabled && currentStatus && (
-              <div className={`mt-4 flex items-center gap-3 px-4 py-3 rounded-xl border ${
-                currentStatus.isOpen
-                  ? 'bg-emerald-50 border-emerald-200'
-                  : 'bg-red-50 border-red-200'
-              }`}>
-                <div className={`w-3 h-3 rounded-full ${
-                  currentStatus.isOpen ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'
-                }`} />
-                <div>
-                  <span className={`text-sm font-semibold ${
-                    currentStatus.isOpen ? 'text-emerald-700' : 'text-red-700'
+                  {/* Icon bubble */}
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg shrink-0 transition-all duration-200 ${
+                    isActive
+                      ? 'bg-gradient-to-br from-blue-500 to-indigo-600 shadow-md shadow-blue-500/25'
+                      : 'bg-slate-100 group-hover:bg-slate-200'
                   }`}>
-                    {currentStatus.isOpen ? '🟢 Actualmente ABIERTO' : '🔴 Actualmente CERRADO'}
-                  </span>
-                  <span className="text-xs text-slate-500 ml-3">
-                    {DAY_LABELS[currentStatus.currentDay]?.name} — {formatTime12(currentStatus.currentTime)}
-                  </span>
-                </div>
-              </div>
-            )}
+                    {tab.icon}
+                  </div>
+
+                  <div className="min-w-0">
+                    <p className={`font-bold text-sm transition-colors duration-200 ${
+                      isActive ? 'text-blue-700' : 'text-slate-600 group-hover:text-slate-800'
+                    }`}>
+                      {tab.label}
+                    </p>
+                    <p className={`text-[11px] truncate transition-colors duration-200 ${
+                      isActive ? 'text-blue-500/80' : 'text-slate-400'
+                    }`}>
+                      {tab.description}
+                    </p>
+                  </div>
+
+                  {isActive && (
+                    <div className="ml-auto shrink-0 w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
+                  )}
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        {/* ── Schedule Configuration ── */}
-        {businessHours.enabled && (
-          <>
-            {/* Timezone selector */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <Globe className="w-5 h-5 text-blue-600" />
-                <h3 className="font-bold text-slate-700">Zona Horaria</h3>
-              </div>
-              <div className="relative">
-                <select
-                  value={businessHours.timezone}
-                  onChange={(e) => setTimezone(e.target.value)}
-                  className="w-full md:w-96 appearance-none px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent cursor-pointer"
-                >
-                  {TIMEZONES.map(tz => (
-                    <option key={tz.value} value={tz.value}>{tz.label}</option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
-              </div>
-            </div>
+        {/* ══════════════════════════════════════════════════ */}
+        {/* TAB CONTENT: HORARIO DE ATENCIÓN                  */}
+        {/* ══════════════════════════════════════════════════ */}
+        {activeTab === 'hours' && (
+          <div className="space-y-6">
 
-            {/* Weekly schedule */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="px-6 py-5 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
-                <div className="flex items-center gap-3">
-                  <CalendarDays className="w-5 h-5 text-blue-600" />
-                  <h3 className="font-bold text-slate-700">Horario Semanal</h3>
-                </div>
-                <p className="text-xs text-slate-500 mt-1 ml-8">Configura el horario de atención para cada día de la semana</p>
-              </div>
-
-              <div className="divide-y divide-slate-100">
-                {DAY_ORDER.map((day) => {
-                  const schedule = businessHours.schedule[day];
-                  const dayInfo = DAY_LABELS[day];
-                  const hours = getHoursWidth(day);
-                  const isWeekend = day === 'saturday' || day === 'sunday';
-                  const isToday = currentStatus?.currentDay === day;
-
-                  return (
-                    <div
-                      key={day}
-                      className={`px-6 py-4 flex items-center gap-4 transition-all duration-200 ${
-                        isToday ? 'bg-blue-50/50' : isWeekend ? 'bg-slate-50/50' : 'hover:bg-slate-50/50'
-                      }`}
-                    >
-                      {/* Day label */}
-                      <div className="w-28 shrink-0">
-                        <div className="flex items-center gap-2">
-                          {isToday && (
-                            <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-                          )}
-                          <span className={`font-semibold text-sm ${
-                            schedule.open ? 'text-slate-800' : 'text-slate-400'
-                          } ${isToday ? 'text-blue-700' : ''}`}>
-                            {dayInfo.emoji} {dayInfo.name}
-                          </span>
-                        </div>
-                        {isToday && (
-                          <span className="text-[10px] font-medium text-blue-500 ml-4">HOY</span>
-                        )}
-                      </div>
-
-                      {/* Toggle switch */}
-                      <button
-                        onClick={() => toggleDayOpen(day)}
-                        className={`relative w-12 h-6 rounded-full transition-all duration-300 shrink-0 ${
-                          schedule.open
-                            ? 'bg-emerald-500 shadow-sm shadow-emerald-500/30'
-                            : 'bg-slate-200'
-                        }`}
-                      >
-                        <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-all duration-300 ${
-                          schedule.open ? 'left-[26px]' : 'left-0.5'
-                        }`} />
-                      </button>
-
-                      {/* Open/Closed label */}
-                      <span className={`text-xs font-semibold w-16 shrink-0 ${
-                        schedule.open ? 'text-emerald-600' : 'text-slate-400'
-                      }`}>
-                        {schedule.open ? 'Abierto' : 'Cerrado'}
-                      </span>
-
-                      {schedule.open ? (
-                        <>
-                          {/* Start time */}
-                          <div className="flex items-center gap-2">
-                            <Sun className="w-4 h-4 text-amber-500" />
-                            <select
-                              value={schedule.start}
-                              onChange={(e) => updateDayTime(day, 'start', e.target.value)}
-                              className="appearance-none px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent cursor-pointer hover:bg-white transition-colors"
-                            >
-                              {TIME_OPTIONS.map(t => (
-                                <option key={t} value={t}>{formatTime12(t)}</option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <span className="text-slate-300 font-bold">—</span>
-
-                          {/* End time */}
-                          <div className="flex items-center gap-2">
-                            <Moon className="w-4 h-4 text-indigo-400" />
-                            <select
-                              value={schedule.end}
-                              onChange={(e) => updateDayTime(day, 'end', e.target.value)}
-                              className="appearance-none px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent cursor-pointer hover:bg-white transition-colors"
-                            >
-                              {TIME_OPTIONS.map(t => (
-                                <option key={t} value={t}>{formatTime12(t)}</option>
-                              ))}
-                            </select>
-                          </div>
-
-                          {/* Hours bar visual */}
-                          <div className="flex-1 flex items-center gap-2 ml-2">
-                            <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                              <div
-                                className="h-full bg-gradient-to-r from-blue-400 to-indigo-500 rounded-full transition-all duration-500"
-                                style={{ width: `${Math.min(100, (hours / 24) * 100)}%` }}
-                              />
-                            </div>
-                            <span className="text-[11px] text-slate-400 font-medium shrink-0 w-10 text-right">
-                              {hours.toFixed(1)}h
-                            </span>
-                          </div>
-                        </>
-                      ) : (
-                        <div className="flex-1 flex items-center">
-                          <div className="flex-1 h-2 bg-slate-100 rounded-full" />
-                          <span className="text-[11px] text-slate-300 font-medium ml-2">—</span>
-                        </div>
-                      )}
+            {/* ── Master Toggle Card ── */}
+            <div className={`bg-white rounded-2xl border-2 transition-all duration-300 shadow-sm overflow-hidden ${
+              businessHours.enabled ? 'border-blue-200 shadow-blue-100/50' : 'border-slate-200'
+            }`}>
+              <div className="p-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all duration-300 ${
+                      businessHours.enabled
+                        ? 'bg-gradient-to-br from-blue-500 to-indigo-500 shadow-lg shadow-blue-500/25'
+                        : 'bg-slate-100'
+                    }`}>
+                      <Clock className={`w-7 h-7 ${businessHours.enabled ? 'text-white' : 'text-slate-400'}`} />
                     </div>
-                  );
-                })}
-              </div>
+                    <div>
+                      <h2 className="text-lg font-bold text-slate-800">Control de Horario de Atención</h2>
+                      <p className="text-sm text-slate-500 mt-0.5">
+                        {businessHours.enabled
+                          ? 'El bot responderá solo durante el horario configurado'
+                          : 'El bot responde las 24 horas, los 7 días de la semana'}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={toggleEnabled}
+                    className="focus:outline-none transition-transform hover:scale-105 active:scale-95"
+                  >
+                    {businessHours.enabled ? (
+                      <ToggleRight className="w-14 h-14 text-blue-600" />
+                    ) : (
+                      <ToggleLeft className="w-14 h-14 text-slate-300" />
+                    )}
+                  </button>
+                </div>
 
-              {/* Weekly summary footer */}
-              <div className="px-6 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
-                <span className="text-xs text-slate-500">
-                  {DAY_ORDER.filter(d => businessHours.schedule[d].open).length} de 7 días activos
-                </span>
-                <span className="text-xs text-slate-500">
-                  Total: {DAY_ORDER.reduce((acc, d) => acc + getHoursWidth(d), 0).toFixed(1)} horas/semana
-                </span>
+                {/* Live status indicator */}
+                {businessHours.enabled && currentStatus && (
+                  <div className={`mt-4 flex items-center gap-3 px-4 py-3 rounded-xl border ${
+                    currentStatus.isOpen ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'
+                  }`}>
+                    <div className={`w-3 h-3 rounded-full ${
+                      currentStatus.isOpen ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'
+                    }`} />
+                    <div>
+                      <span className={`text-sm font-semibold ${
+                        currentStatus.isOpen ? 'text-emerald-700' : 'text-red-700'
+                      }`}>
+                        {currentStatus.isOpen ? '🟢 Actualmente ABIERTO' : '🔴 Actualmente CERRADO'}
+                      </span>
+                      <span className="text-xs text-slate-500 ml-3">
+                        {DAY_LABELS[currentStatus.currentDay]?.name} — {formatTime12(currentStatus.currentTime)}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* ── Outside Hours Message ── */}
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-              <div className="px-6 py-5 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
-                <div className="flex items-center gap-3">
-                  <MessageSquare className="w-5 h-5 text-blue-600" />
-                  <h3 className="font-bold text-slate-700">Mensaje Fuera de Horario</h3>
+            {/* ── Schedule configuration (only when enabled) ── */}
+            {businessHours.enabled && (
+              <>
+                {/* Timezone selector */}
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    <Globe className="w-5 h-5 text-blue-600" />
+                    <h3 className="font-bold text-slate-700">Zona Horaria</h3>
+                  </div>
+                  <div className="relative">
+                    <select
+                      value={businessHours.timezone}
+                      onChange={(e) => setTimezone(e.target.value)}
+                      className="w-full md:w-96 appearance-none px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent cursor-pointer"
+                    >
+                      {TIMEZONES.map(tz => (
+                        <option key={tz.value} value={tz.value}>{tz.label}</option>
+                      ))}
+                    </select>
+                    <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+                  </div>
                 </div>
-                <p className="text-xs text-slate-500 mt-1 ml-8">Este mensaje se enviará automáticamente junto con el horario de atención</p>
-              </div>
 
-              <div className="p-6 space-y-5">
-                {/* Editable message */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-2">Mensaje personalizado:</label>
-                  <textarea
-                    value={outsideMessage}
-                    onChange={(e) => setOutsideMessage(e.target.value)}
-                    rows={3}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none transition-colors"
-                    placeholder="Escribe el mensaje que recibirán los clientes fuera del horario de atención..."
-                  />
+                {/* Weekly schedule */}
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="px-6 py-5 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
+                    <div className="flex items-center gap-3">
+                      <CalendarDays className="w-5 h-5 text-blue-600" />
+                      <h3 className="font-bold text-slate-700">Horario Semanal</h3>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1 ml-8">Configura el horario de atención para cada día de la semana</p>
+                  </div>
+
+                  <div className="divide-y divide-slate-100">
+                    {DAY_ORDER.map((day) => {
+                      const schedule = businessHours.schedule[day];
+                      const dayInfo = DAY_LABELS[day];
+                      const hours = getHoursWidth(day);
+                      const isWeekend = day === 'saturday' || day === 'sunday';
+                      const isToday = currentStatus?.currentDay === day;
+
+                      return (
+                        <div
+                          key={day}
+                          className={`px-6 py-4 flex items-center gap-4 transition-all duration-200 ${
+                            isToday ? 'bg-blue-50/50' : isWeekend ? 'bg-slate-50/50' : 'hover:bg-slate-50/50'
+                          }`}
+                        >
+                          {/* Day label */}
+                          <div className="w-28 shrink-0">
+                            <div className="flex items-center gap-2">
+                              {isToday && <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />}
+                              <span className={`font-semibold text-sm ${
+                                schedule.open ? 'text-slate-800' : 'text-slate-400'
+                              } ${isToday ? 'text-blue-700' : ''}`}>
+                                {dayInfo.emoji} {dayInfo.name}
+                              </span>
+                            </div>
+                            {isToday && <span className="text-[10px] font-medium text-blue-500 ml-4">HOY</span>}
+                          </div>
+
+                          {/* Toggle switch */}
+                          <button
+                            onClick={() => toggleDayOpen(day)}
+                            className={`relative w-12 h-6 rounded-full transition-all duration-300 shrink-0 ${
+                              schedule.open ? 'bg-emerald-500 shadow-sm shadow-emerald-500/30' : 'bg-slate-200'
+                            }`}
+                          >
+                            <div className={`absolute top-0.5 w-5 h-5 bg-white rounded-full shadow-md transition-all duration-300 ${
+                              schedule.open ? 'left-[26px]' : 'left-0.5'
+                            }`} />
+                          </button>
+
+                          {/* Open/Closed label */}
+                          <span className={`text-xs font-semibold w-16 shrink-0 ${
+                            schedule.open ? 'text-emerald-600' : 'text-slate-400'
+                          }`}>
+                            {schedule.open ? 'Abierto' : 'Cerrado'}
+                          </span>
+
+                          {schedule.open ? (
+                            <>
+                              <div className="flex items-center gap-2">
+                                <Sun className="w-4 h-4 text-amber-500" />
+                                <select
+                                  value={schedule.start}
+                                  onChange={(e) => updateDayTime(day, 'start', e.target.value)}
+                                  className="appearance-none px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent cursor-pointer hover:bg-white transition-colors"
+                                >
+                                  {TIME_OPTIONS.map(t => <option key={t} value={t}>{formatTime12(t)}</option>)}
+                                </select>
+                              </div>
+                              <span className="text-slate-300 font-bold">—</span>
+                              <div className="flex items-center gap-2">
+                                <Moon className="w-4 h-4 text-indigo-400" />
+                                <select
+                                  value={schedule.end}
+                                  onChange={(e) => updateDayTime(day, 'end', e.target.value)}
+                                  className="appearance-none px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent cursor-pointer hover:bg-white transition-colors"
+                                >
+                                  {TIME_OPTIONS.map(t => <option key={t} value={t}>{formatTime12(t)}</option>)}
+                                </select>
+                              </div>
+                              <div className="flex-1 flex items-center gap-2 ml-2">
+                                <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full bg-gradient-to-r from-blue-400 to-indigo-500 rounded-full transition-all duration-500"
+                                    style={{ width: `${Math.min(100, (hours / 24) * 100)}%` }}
+                                  />
+                                </div>
+                                <span className="text-[11px] text-slate-400 font-medium shrink-0 w-10 text-right">
+                                  {hours.toFixed(1)}h
+                                </span>
+                              </div>
+                            </>
+                          ) : (
+                            <div className="flex-1 flex items-center">
+                              <div className="flex-1 h-2 bg-slate-100 rounded-full" />
+                              <span className="text-[11px] text-slate-300 font-medium ml-2">—</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Weekly summary footer */}
+                  <div className="px-6 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between">
+                    <span className="text-xs text-slate-500">
+                      {DAY_ORDER.filter(d => businessHours.schedule[d].open).length} de 7 días activos
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      Total: {DAY_ORDER.reduce((acc, d) => acc + getHoursWidth(d), 0).toFixed(1)} horas/semana
+                    </span>
+                  </div>
                 </div>
 
-                {/* Preview */}
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-2">Vista previa (así lo verá el cliente en WhatsApp):</label>
-                  <div className="bg-gradient-to-br from-[#e5ddd5] to-[#d4cec4] rounded-2xl p-5 relative overflow-hidden">
-                    {/* WhatsApp pattern overlay */}
-                    <div className="absolute inset-0 opacity-5" style={{
-                      backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23000' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-                    }} />
-                    <div className="relative max-w-sm ml-auto">
-                      <div className="bg-[#dcf8c6] rounded-xl rounded-tr-sm px-4 py-3 shadow-sm">
-                        <p className="text-[13px] text-slate-800 whitespace-pre-wrap leading-relaxed">{previewMessage}</p>
-                        <p className="text-[10px] text-slate-500 text-right mt-1">
-                          {new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} ✓✓
-                        </p>
+                {/* Outside Hours Message */}
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="px-6 py-5 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
+                    <div className="flex items-center gap-3">
+                      <MessageSquare className="w-5 h-5 text-blue-600" />
+                      <h3 className="font-bold text-slate-700">Mensaje Fuera de Horario</h3>
+                    </div>
+                    <p className="text-xs text-slate-500 mt-1 ml-8">Este mensaje se enviará automáticamente junto con el horario de atención</p>
+                  </div>
+                  <div className="p-6 space-y-5">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-2">Mensaje personalizado:</label>
+                      <textarea
+                        value={outsideMessage}
+                        onChange={(e) => setOutsideMessage(e.target.value)}
+                        rows={3}
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none transition-colors"
+                        placeholder="Escribe el mensaje que recibirán los clientes fuera del horario de atención..."
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-600 mb-2">Vista previa (así lo verá el cliente en WhatsApp):</label>
+                      <div className="bg-gradient-to-br from-[#e5ddd5] to-[#d4cec4] rounded-2xl p-5 relative overflow-hidden">
+                        <div className="absolute inset-0 opacity-5" style={{
+                          backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23000' fill-opacity='1'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
+                        }} />
+                        <div className="relative max-w-sm ml-auto">
+                          <div className="bg-[#dcf8c6] rounded-xl rounded-tr-sm px-4 py-3 shadow-sm">
+                            <p className="text-[13px] text-slate-800 whitespace-pre-wrap leading-relaxed">{previewMessage}</p>
+                            <p className="text-[10px] text-slate-500 text-right mt-1">
+                              {new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })} ✓✓
+                            </p>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            </div>
-          </>
-        )}
+              </>
+            )}
 
-        {/* ── Disabled state info ── */}
-        {!businessHours.enabled && (
-          <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-8 text-center">
-            <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
-              <Clock className="w-8 h-8 text-slate-300" />
-            </div>
-            <h3 className="text-lg font-bold text-slate-400 mb-2">Horario desactivado</h3>
-            <p className="text-sm text-slate-400 max-w-md mx-auto">
-              El bot está configurado para responder las 24 horas, los 7 días de la semana.
-              Activa el control de horario para que el bot solo responda durante las horas configuradas.
-            </p>
+            {/* Disabled state info */}
+            {!businessHours.enabled && (
+              <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-8 text-center">
+                <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                  <Clock className="w-8 h-8 text-slate-300" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-400 mb-2">Horario desactivado</h3>
+                <p className="text-sm text-slate-400 max-w-md mx-auto">
+                  El bot está configurado para responder las 24 horas, los 7 días de la semana.
+                  Activa el control de horario para que el bot solo responda durante las horas configuradas.
+                </p>
+              </div>
+            )}
           </div>
         )}
 
-        {/* ── WhatsApp Templates Section ── */}
-        <WhatsAppTemplates />
+        {/* ══════════════════════════════════════════════════ */}
+        {/* TAB CONTENT: PLANTILLAS DE WHATSAPP               */}
+        {/* ══════════════════════════════════════════════════ */}
+        {activeTab === 'templates' && (
+          <WhatsAppTemplates />
+        )}
 
       </div>
     </div>

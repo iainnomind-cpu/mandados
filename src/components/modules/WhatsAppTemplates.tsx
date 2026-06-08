@@ -255,6 +255,42 @@ export default function WhatsAppTemplates() {
           </div>
         )}
 
+        {/* ── Suggested Templates ── */}
+        <div className="px-6 pt-4">
+          <div className="flex items-center gap-2 mb-3">
+            <Sparkles className="w-4 h-4 text-purple-500" />
+            <h4 className="text-sm font-bold text-slate-700">Plantilla sugerida</h4>
+          </div>
+          <div className="grid gap-3 md:grid-cols-1">
+            {[
+              {
+                label: 'Asignación a Repartidor',
+                description: 'Notifica al repartidor los detalles de un nuevo mandado asignado.',
+                name: 'asignacion_mandado_repartidor',
+                header: '¡Nuevo Mandado Asignado! 🛵',
+                body: 'Hola {{1}},\n\nSe te ha asignado un nuevo mandado.\n\n📍 *Recolección:* {{2}}\n📍 *Entrega:* {{3}}\n📦 *Detalle:* {{4}}\n💰 *Cobro:* {{5}}\n\nPor favor confirma tu recepción.',
+                footer: 'Mandados ERP',
+              }
+            ].map((tmpl, idx) => (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => {
+                  setName(tmpl.name);
+                  setHeader(tmpl.header);
+                  setBody(tmpl.body);
+                  setFooter(tmpl.footer);
+                }}
+                className="flex flex-col text-left p-3 rounded-xl border border-purple-100 bg-purple-50/50 hover:bg-purple-50 hover:border-purple-200 transition-colors"
+              >
+                <span className="text-sm font-bold text-purple-700">{tmpl.label}</span>
+                <span className="text-xs text-purple-600/80 mt-0.5">{tmpl.description}</span>
+                <span className="text-[10px] text-purple-500 mt-2 font-medium bg-purple-100/50 px-2 py-0.5 rounded w-max">Clic para rellenar formulario</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* ── Form ── */}
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
           {/* Template Name */}
