@@ -3,7 +3,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 // ─────────────────────────────────────────────────────────
 // Config — read from Vercel environment variables
 // ─────────────────────────────────────────────────────────
-const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN!;
+const META_ACCESS_TOKEN = process.env.WHATSAPP_TOKEN!;
 const WABA_ID = process.env.WABA_ID!;
 const GRAPH_API_VERSION = 'v21.0';
 const TEMPLATES_URL = `https://graph.facebook.com/${GRAPH_API_VERSION}/${WABA_ID}/message_templates`;
