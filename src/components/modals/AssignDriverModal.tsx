@@ -23,7 +23,7 @@ export default function AssignDriverModal({ order, drivers, onClose, onSuccess }
 
   const availableDrivers = useMemo(() => {
     return drivers
-      .filter((d) => d.status === 'available' || d.status === 'busy')
+      .filter((d) => d.status !== 'inactive') // Exclude only inactive, allow offline/available/busy
       .filter((d) => {
         if (!searchQuery) return true;
         const nameProfile = d.profiles?.full_name?.toLowerCase() || '';
@@ -162,8 +162,13 @@ export default function AssignDriverModal({ order, drivers, onClose, onSuccess }
                       <Truck className="w-5 h-5" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="font-bold text-slate-900 text-sm truncate">
+                      <p className="font-bold text-slate-900 text-sm truncate flex items-center gap-2">
                         {driver.profiles?.full_name || driver.vehicle_plate || 'Conductor'}
+                        {driver.status === 'offline' && (
+                          <span className="text-[10px] bg-slate-200 text-slate-500 px-1.5 py-0.5 rounded-full font-bold">
+                            OFFLINE
+                          </span>
+                        )}
                       </p>
                       <p className="text-[10px] text-slate-500 font-medium uppercase tracking-tighter truncate">
                         {driver.vehicle_type} · {driver.vehicle_plate}

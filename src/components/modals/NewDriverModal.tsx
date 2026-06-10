@@ -36,7 +36,7 @@ export default function NewDriverModal({ onClose, onSuccess }: NewDriverModalPro
             vehicle_type: formData.vehicleType || null,
             license_number: formData.licenseNumber || null,
             license_expiry: formData.licenseExpiry || null,
-            status: 'offline',
+            status: 'available',
             rating: 5.00,
             total_deliveries: 0,
             active_load_count: 0,
