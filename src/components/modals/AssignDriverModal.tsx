@@ -20,9 +20,27 @@ export default function AssignDriverModal({ order, drivers, onClose, onSuccess }
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [localDrivers, setLocalDrivers] = useState<DriverWithProfile[]>(drivers || []);
+  const [loadingDrivers, setLoadingDrivers] = useState(!drivers);
+
+  useEffect(() => {
+    if (!drivers || drivers.length === 0) {
+      const loadDrivers = async () => {
+        setLoadingDrivers(true);
+        const { data } = await supabase
+          .from('drivers')
+          .select('*, profiles:user_id(full_name)')
+          .in('status', ['available', 'busy', 'offline'])
+          .order('status');
+        setLocalDrivers((data as DriverWithProfile[]) || []);
+        setLoadingDrivers(false);
+      };
+      loadDrivers();
+    }
+  }, [drivers]);
 
   const availableDrivers = useMemo(() => {
-    return drivers
+    return localDrivers
       .filter((d) => d.status !== 'inactive') // Exclude only inactive, allow offline/available/busy
       .filter((d) => {
         if (!searchQuery) return true;
@@ -30,7 +48,7 @@ export default function AssignDriverModal({ order, drivers, onClose, onSuccess }
         const nameDriver = d.full_name?.toLowerCase() || '';
         return nameProfile.includes(searchQuery.toLowerCase()) || nameDriver.includes(searchQuery.toLowerCase());
       });
-  }, [drivers, searchQuery]);
+  }, [localDrivers, searchQuery]);
 
   const handleAssign = async () => {
     if (!selectedDriverId) {

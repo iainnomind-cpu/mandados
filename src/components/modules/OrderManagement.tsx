@@ -10,6 +10,7 @@ import { useToast } from '../../hooks/useToast';
 import NotificationToast from '../NotificationToast';
 import NewOrderModal from '../modals/NewOrderModal';
 import OrderDetailsModal from '../modals/OrderDetailsModal';
+import AssignDriverModal from '../modals/AssignDriverModal';
 import { OrderWithItems } from '../../types';
 
 // ---------- Helpers ----------------------------------------------------------
@@ -143,6 +144,7 @@ export default function OrderManagement() {
   const [dateFilter, setDateFilter] = useState<'today' | 'all'>('today');
   const [showNewModal, setShowNewModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<OrderWithItems | null>(null);
+  const [assignTarget, setAssignTarget] = useState<OrderWithItems | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<OrderWithItems | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -442,6 +444,15 @@ export default function OrderManagement() {
                             >
                               <Eye className="w-4 h-4" />
                             </button>
+                            {(role === 'admin' || role === 'dispatcher') && order.status !== 'delivered' && order.status !== 'cancelled' && (
+                              <button
+                                onClick={() => setAssignTarget(order)}
+                                title="Asignar Conductor"
+                                className="p-1.5 text-purple-600 hover:bg-purple-50 rounded-md transition-colors"
+                              >
+                                <Truck className="w-4 h-4" />
+                              </button>
+                            )}
                             {role === 'admin' && (
                               <button
                                 onClick={() => setDeleteTarget(order)}
@@ -496,6 +507,19 @@ export default function OrderManagement() {
           onDelete={(o) => {
             setSelectedOrder(null);
             setDeleteTarget(o);
+          }}
+        />
+      )}
+
+      {/* Quick assign driver modal */}
+      {assignTarget && (
+        <AssignDriverModal
+          order={assignTarget}
+          drivers={[]} // Drivers will be loaded by the modal
+          onClose={() => setAssignTarget(null)}
+          onSuccess={() => {
+            setAssignTarget(null);
+            reload();
           }}
         />
       )}

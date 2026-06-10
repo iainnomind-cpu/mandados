@@ -466,6 +466,7 @@ export default function OrderDetailsModal({
                     {drivers.map((d) => {
                       const name =
                         (d as unknown as { profiles?: { full_name?: string } }).profiles?.full_name ??
+                        d.full_name ??
                         d.vehicle_plate ??
                         d.id.slice(0, 8);
                       const statusLabel = d.status === 'available' ? '✅' : '🔶';
@@ -497,7 +498,8 @@ export default function OrderDetailsModal({
                   <Clock className="w-3 h-3" />
                   Conductor actual:{' '}
                   <span className="font-medium text-gray-700">
-                    {(order.driver as { profiles?: { full_name?: string } })?.profiles?.full_name ??
+                    {(order.driver as { profiles?: { full_name?: string }, full_name?: string })?.profiles?.full_name ??
+                      (order.driver as { full_name?: string })?.full_name ??
                       order.driver?.vehicle_plate ??
                       'Asignado'}
                   </span>
