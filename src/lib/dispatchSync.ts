@@ -181,13 +181,19 @@ export async function manualAssignOrder(
     // Validate driver exists and is active (available or busy for multi-load)
     const { data: driver, error: driverErr } = await supabase
         .from('drivers')
-        .select('id, status')
+        .select('id, status, active_load_count')
         .eq('id', driverId)
         .single();
 
     if (driverErr || !driver) throw new Error('Conductor no encontrado');
     if (driver.status !== 'available' && driver.status !== 'busy') {
         throw new Error('El conductor no está disponible');
+    }
+
+    // Enforce maximum load limit
+    const MAX_LOAD_PER_DRIVER = 5;
+    if ((driver.active_load_count ?? 0) >= MAX_LOAD_PER_DRIVER) {
+        throw new Error(`El conductor ya tiene ${driver.active_load_count} pedidos activos. Máximo permitido: ${MAX_LOAD_PER_DRIVER}`);
     }
 
     // Update order: status → assigned, assigned_driver_id

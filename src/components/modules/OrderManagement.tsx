@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import {
   Package, Plus, Search, Filter, Eye, Trash2,
   UserCheck, CheckCircle, XCircle, Clock, Truck,
-  DollarSign, TrendingUp, Calendar, AlertTriangle,
+  DollarSign, TrendingUp, Calendar, AlertTriangle, Activity,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useOrders } from '../../hooks/useOrders';
@@ -399,8 +399,16 @@ export default function OrderManagement() {
                   </tr>
                 ) : (
                   filtered.map((order) => {
-                    const drv = order.driver as { profiles?: { full_name?: string }; full_name?: string } | null;
+                    const drv = order.driver as { profiles?: { full_name?: string }; full_name?: string; active_load_count?: number } | null;
                     const driverName = drv?.profiles?.full_name ?? drv?.full_name ?? '—';
+                    const drvLoad = drv?.active_load_count ?? 0;
+                    const loadBadge = drv ? (
+                      drvLoad === 0
+                        ? { cls: 'bg-emerald-100 text-emerald-700', label: '0' }
+                        : drvLoad <= 2
+                          ? { cls: 'bg-amber-100 text-amber-700', label: String(drvLoad) }
+                          : { cls: 'bg-red-100 text-red-700', label: String(drvLoad) }
+                    ) : null;
                     return (
                       <tr key={order.id} className="hover:bg-gray-50 transition-colors">
                         <td className="px-4 py-3">
@@ -422,8 +430,18 @@ export default function OrderManagement() {
                         <td className="px-4 py-3">
                           <StatusBadge status={order.status} />
                         </td>
-                        <td className="px-4 py-3 hidden lg:table-cell text-gray-600 text-xs">
-                          {driverName}
+                        <td className="px-4 py-3 hidden lg:table-cell">
+                          {drv ? (
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs text-gray-700 font-medium">{driverName}</span>
+                              <span className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${loadBadge!.cls}`}>
+                                <Activity className="w-2.5 h-2.5" />
+                                {loadBadge!.label}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400 italic">—</span>
+                          )}
                         </td>
                         <td className="px-4 py-3 hidden sm:table-cell text-right font-semibold text-gray-900">
                           ${(order.total_amount ?? 0).toFixed(2)}

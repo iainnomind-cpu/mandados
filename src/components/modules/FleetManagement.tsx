@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Users, Plus, Search, UserCheck, UserX, Phone } from 'lucide-react';
+import { Users, Plus, Search, UserCheck, UserX, Phone, Package, Power } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { Driver } from '../../types';
 import NewDriverModal from '../modals/NewDriverModal';
@@ -63,6 +63,35 @@ export default function FleetManagement() {
       suspended: 'bg-red-100 text-red-800',
     };
     return colors[status] || 'bg-gray-100 text-gray-800';
+  };
+
+  const getStatusLabel = (status: string) => {
+    const labels: Record<string, string> = {
+      available: 'Disponible',
+      busy: 'Ocupado',
+      offline: 'Fuera de línea',
+      suspended: 'Suspendido',
+    };
+    return labels[status] || status;
+  };
+
+  const getLoadColor = (count: number) => {
+    if (count === 0) return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+    if (count <= 2) return 'bg-amber-100 text-amber-700 border-amber-200';
+    return 'bg-red-100 text-red-700 border-red-200';
+  };
+
+  const getLoadLabel = (count: number) => {
+    if (count === 0) return 'Libre';
+    return `${count} activo${count > 1 ? 's' : ''}`;
+  };
+
+  const toggleDriverOnline = async (driverId: string, currentStatus: string) => {
+    // If busy, don't allow toggling to offline (driver has active orders)
+    if (currentStatus === 'busy') return;
+    const newStatus = currentStatus === 'available' ? 'offline' : 'available';
+    await supabase.from('drivers').update({ status: newStatus }).eq('id', driverId);
+    loadDrivers();
   };
 
   const getStatusStats = () => {
@@ -184,6 +213,9 @@ export default function FleetManagement() {
                     Estado
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    Carga Actual
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
                     Teléfono
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
@@ -197,13 +229,13 @@ export default function FleetManagement() {
               <tbody className="divide-y divide-gray-200">
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
+                    <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
                       Cargando conductores...
                     </td>
                   </tr>
                 ) : filteredDrivers.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-8 text-center text-gray-500">
+                    <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
                       No se encontraron conductores
                     </td>
                   </tr>
@@ -232,7 +264,13 @@ export default function FleetManagement() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(driver.status)}`}>
-                          {driver.status}
+                          {getStatusLabel(driver.status)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-bold border ${getLoadColor(driver.active_load_count ?? 0)}`}>
+                          <Package className="w-3 h-3" />
+                          {getLoadLabel(driver.active_load_count ?? 0)}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
@@ -249,12 +287,32 @@ export default function FleetManagement() {
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <button
-                          onClick={() => setSelectedDriver(driver)}
-                          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                        >
-                          Ver Detalles
-                        </button>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setSelectedDriver(driver)}
+                            className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                          >
+                            Ver Detalles
+                          </button>
+                          {driver.status !== 'busy' && (
+                            <button
+                              onClick={() => toggleDriverOnline(driver.id, driver.status)}
+                              title={driver.status === 'available' ? 'Poner fuera de línea' : 'Poner disponible'}
+                              className={`p-1.5 rounded-lg transition-colors ${
+                                driver.status === 'available'
+                                  ? 'text-gray-400 hover:text-red-600 hover:bg-red-50'
+                                  : 'text-gray-400 hover:text-green-600 hover:bg-green-50'
+                              }`}
+                            >
+                              <Power className="w-4 h-4" />
+                            </button>
+                          )}
+                          {driver.status === 'busy' && (
+                            <span className="text-[10px] text-amber-600 font-medium" title="No se puede cambiar el estado mientras tiene pedidos activos">
+                              En servicio
+                            </span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))

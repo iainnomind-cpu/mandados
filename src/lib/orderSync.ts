@@ -163,14 +163,26 @@ export async function markOrderAsDelivered(orderId: string, userId?: string) {
 
     const { data: driver } = await supabase
       .from('drivers')
-      .select('total_deliveries')
+      .select('total_deliveries, active_load_count')
       .eq('id', order.assigned_driver_id)
       .single();
 
     if (driver) {
+      // Count remaining active assignments AFTER completing this one
+      const { count: remainingActive } = await supabase
+        .from('assignments')
+        .select('*', { count: 'exact', head: true })
+        .eq('driver_id', order.assigned_driver_id)
+        .in('status', ['assigned', 'accepted', 'in_progress']);
+
+      const newLoad = Math.max(0, remainingActive ?? 0);
       await supabase
         .from('drivers')
-        .update({ status: 'available', total_deliveries: (driver.total_deliveries || 0) + 1 })
+        .update({
+          status: newLoad === 0 ? 'available' : 'busy',
+          active_load_count: newLoad,
+          total_deliveries: (driver.total_deliveries || 0) + 1,
+        })
         .eq('id', order.assigned_driver_id);
     }
   }
@@ -237,17 +249,28 @@ export async function completeDelivery(
 
   const { data: driver } = await supabase
     .from('drivers')
-    .select('total_deliveries')
+    .select('total_deliveries, active_load_count')
     .eq('id', driverId)
     .single();
 
-  await supabase
-    .from('drivers')
-    .update({
-      status: 'available',
-      total_deliveries: (driver?.total_deliveries || 0) + 1,
-    })
-    .eq('id', driverId);
+  if (driver) {
+    // Count remaining active assignments AFTER completing this one
+    const { count: remainingActive } = await supabase
+      .from('assignments')
+      .select('*', { count: 'exact', head: true })
+      .eq('driver_id', driverId)
+      .in('status', ['assigned', 'accepted', 'in_progress']);
+
+    const newLoad = Math.max(0, remainingActive ?? 0);
+    await supabase
+      .from('drivers')
+      .update({
+        status: newLoad === 0 ? 'available' : 'busy',
+        active_load_count: newLoad,
+        total_deliveries: (driver.total_deliveries || 0) + 1,
+      })
+      .eq('id', driverId);
+  }
 
   await supabase.from('order_events').insert([
     {
@@ -299,18 +322,20 @@ export async function cancelOrder(
       .update({ status: 'cancelled' })
       .eq('id', assignment.id);
 
-    const { count } = await supabase
+    const { count: remainingActive } = await supabase
       .from('assignments')
       .select('*', { count: 'exact', head: true })
       .eq('driver_id', assignment.driver_id)
       .in('status', ['assigned', 'accepted', 'in_progress']);
 
-    if (count === 0) {
-      await supabase
-        .from('drivers')
-        .update({ status: 'available' })
-        .eq('id', assignment.driver_id);
-    }
+    const newLoad = Math.max(0, remainingActive ?? 0);
+    await supabase
+      .from('drivers')
+      .update({
+        status: newLoad === 0 ? 'available' : 'busy',
+        active_load_count: newLoad,
+      })
+      .eq('id', assignment.driver_id);
   }
 
   await supabase
