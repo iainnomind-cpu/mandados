@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { X, User, Truck, ShieldCheck, AlertCircle, RefreshCcw, Search } from 'lucide-react';
 import { manualAssignOrder } from '../../lib/dispatchSync';
 import { Order, DriverWithProfile } from '../../types';
