@@ -479,7 +479,7 @@ async function sendOrderTemplateNotification(orderId: string): Promise<void> {
     // Format phone for WhatsApp (needs country code, e.g. "521XXXXXXXXXX")
     let waPhone = phone.replace(/[^0-9]/g, '');
     if (waPhone.length === 10) {
-        waPhone = `52${waPhone}`; // Add Mexico country code
+        waPhone = `521${waPhone}`; // Add Mexico country code with mobile prefix '1'
     }
 
     // Extract the 4 parameters from the order
