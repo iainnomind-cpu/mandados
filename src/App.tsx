@@ -11,6 +11,7 @@ import FinanceManagement from './components/modules/FinanceManagement';
 import FleetManagement from './components/modules/FleetManagement';
 import BusinessHoursConfig from './components/modules/BusinessHoursConfig';
 import GlobalNotifications from './components/GlobalNotifications';
+import PrivacyPolicy from './components/pages/PrivacyPolicy';
 
 function AppContent() {
   const { user, loading } = useAuth();
@@ -73,6 +74,11 @@ function AppContent() {
 }
 
 function App() {
+  // Simple public route for Privacy Policy
+  if (window.location.pathname === '/privacy-policy') {
+    return <PrivacyPolicy />;
+  }
+
   return (
     <AuthProvider>
       <NotificationProvider>
