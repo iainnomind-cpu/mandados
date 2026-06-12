@@ -456,10 +456,10 @@ export async function fetchDriversWithProfiles(): Promise<DriverWithProfile[]> {
 //   {{5}} = total (comisión)
 // ============================================================
 async function sendOrderTemplateNotification(orderId: string): Promise<void> {
-    // Fetch the full order with customer phone
+    // Fetch the full order and the assigned driver's phone
     const { data: order, error } = await supabase
         .from('orders')
-        .select('customer_name, customer_phone, pickup_address, delivery_address, items, special_instructions, total_amount, delivery_fee')
+        .select('customer_name, customer_phone, pickup_address, delivery_address, items, special_instructions, total_amount, delivery_fee, driver:assigned_driver_id(phone)')
         .eq('id', orderId)
         .single();
 
@@ -468,10 +468,11 @@ async function sendOrderTemplateNotification(orderId: string): Promise<void> {
         return;
     }
 
-    // Need a phone number to send to
-    const phone = order.customer_phone;
+    // Need the driver's phone number to send to
+    const driver = order.driver as { phone?: string } | null;
+    const phone = driver?.phone;
     if (!phone) {
-        console.warn('[TMS→WA] Pedido sin teléfono de cliente, no se puede enviar plantilla:', orderId);
+        console.warn('[TMS→WA] El repartidor asignado no tiene teléfono, no se puede enviar plantilla:', orderId);
         return;
     }
 
