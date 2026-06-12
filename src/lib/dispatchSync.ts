@@ -517,7 +517,7 @@ async function sendOrderTemplateNotification(orderId: string): Promise<void> {
         : deliveryAddr?.street || deliveryAddr?.address || 'Por confirmar';
 
     // Template name from environment or default
-    const templateName = (typeof window === 'undefined' ? process.env.WHATSAPP_TEMPLATE_NAME : null) || 'aviso_pedido_asignado';
+    const templateName = (typeof window === 'undefined' ? process.env.WHATSAPP_TEMPLATE_NAME : null) || 'asignacion_mandado_repartidor';
 
     console.log(`[TMS→WA] Enviando plantilla "${templateName}" a ${waPhone}:`, {
         nombre_cliente: nombreCliente,
