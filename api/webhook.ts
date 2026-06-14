@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import crypto from 'crypto';
 
 // ─────────────────────────────────────────────────────────
 // Config & Constants
@@ -9,6 +10,7 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY!;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN!;
 const WHATSAPP_PHONE_ID = process.env.WHATSAPP_PHONE_ID!;
 const WHATSAPP_VERIFY_TOKEN = process.env.WHATSAPP_VERIFY_TOKEN!;
+const WHATSAPP_APP_SECRET = process.env.WHATSAPP_APP_SECRET;
 
 const GRAPH_API_URL = `https://graph.facebook.com/v21.0/${WHATSAPP_PHONE_ID}/messages`;
 
@@ -1266,6 +1268,20 @@ async function processDriverButtonResponse(from: string, payload: string): Promi
 
     const order = orders[0];
 
+    // Authorization Check: Ensure the caller is the assigned driver
+    if (order.assigned_driver_id) {
+      const drivers = await supabaseGet('drivers', `id=eq.${order.assigned_driver_id}&select=phone`);
+      if (drivers.length === 0 || cleanPhone(from) !== cleanPhone(drivers[0].phone)) {
+        console.warn(`🚨 Intento no autorizado: El teléfono ${from} intentó actualizar el pedido ${orderId} asignado a otro repartidor.`);
+        await sendWhatsAppMessage(from, '⚠️ No tienes permisos para actualizar este pedido.');
+        return;
+      }
+    } else {
+      console.warn(`⚠️ Intento de actualizar un pedido sin repartidor asignado: ${orderId} por ${from}`);
+      await sendWhatsAppMessage(from, '⚠️ Este pedido no tiene un repartidor asignado actualmente.');
+      return;
+    }
+
     if (action === 'DELIVERED_OK') {
       // ── Mark order as delivered ──
       await supabaseUpdate('orders', orderId, {
@@ -1349,6 +1365,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   // ─── POST: Incoming WhatsApp Messages ───
   if (req.method === 'POST') {
+    if (WHATSAPP_APP_SECRET) {
+      const signature = req.headers['x-hub-signature-256'] as string;
+      if (!signature) {
+        console.warn('⚠️ Falta X-Hub-Signature-256 en la petición.');
+        return res.status(401).send('Unauthorized');
+      }
+
+      // Validar la firma usando el body sin procesar si es posible, o JSON.stringify
+      const payload = JSON.stringify(req.body);
+      const expectedSignature = 'sha256=' + crypto.createHmac('sha256', WHATSAPP_APP_SECRET).update(payload).digest('hex');
+      
+      // En Vercel a veces JSON.stringify no es idéntico byte a byte, pero es la forma estándar si no hay rawBody.
+      // Si esto falla en producción, se necesitará exportar config = { api: { bodyParser: false } }
+      if (signature !== expectedSignature) {
+        console.warn('🚨 Firma de Webhook Inválida. Posible ataque detectado.');
+        return res.status(401).send('Unauthorized');
+      }
+    }
+
     const body = req.body;
 
     if (body?.object === 'whatsapp_business_account') {

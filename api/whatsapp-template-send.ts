@@ -21,9 +21,38 @@ const GRAPH_API_URL = `https://graph.facebook.com/v21.0/${WHATSAPP_PHONE_ID}/mes
 //   total: string           — {{5}} Total (Comisión $35 o $45)
 // }
 // ─────────────────────────────────────────────────────────
+async function verifyAuth(req: VercelRequest): Promise<boolean> {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return false;
+    
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const anonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !anonKey) {
+        console.error('Missing Supabase env vars for auth verification');
+        return false;
+    }
+
+    try {
+        const res = await fetch(`${supabaseUrl}/auth/v1/user`, {
+            headers: {
+                apikey: anonKey,
+                Authorization: authHeader
+            }
+        });
+        return res.ok;
+    } catch {
+        return false;
+    }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const isAuthorized = await verifyAuth(req);
+  if (!isAuthorized) {
+      return res.status(401).json({ error: 'Unauthorized: Invalid or missing JWT' });
   }
 
   if (!WHATSAPP_TOKEN || !WHATSAPP_PHONE_ID) {

@@ -49,7 +49,36 @@ function generateExampleValues(count: number): string[] {
 // DELETE /api/whatsapp-template — Delete a template
 // Body: { name: string }
 // ─────────────────────────────────────────────────────────
+async function verifyAuth(req: VercelRequest): Promise<boolean> {
+    const authHeader = req.headers.authorization;
+    if (!authHeader) return false;
+    
+    const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+    const anonKey = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !anonKey) {
+        console.error('Missing Supabase env vars for auth verification');
+        return false;
+    }
+
+    try {
+        const res = await fetch(`${supabaseUrl}/auth/v1/user`, {
+            headers: {
+                apikey: anonKey,
+                Authorization: authHeader
+            }
+        });
+        return res.ok;
+    } catch {
+        return false;
+    }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  const isAuthorized = await verifyAuth(req);
+  if (!isAuthorized) {
+      return res.status(401).json({ error: 'Unauthorized: Invalid or missing JWT' });
+  }
+
   // ── Validate environment ──
   if (!META_ACCESS_TOKEN || !WABA_ID) {
     console.error('❌ Missing META_ACCESS_TOKEN or WABA_ID environment variables');
