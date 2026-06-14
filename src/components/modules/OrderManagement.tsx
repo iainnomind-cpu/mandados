@@ -141,7 +141,7 @@ export default function OrderManagement() {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [dateFilter, setDateFilter] = useState<'today' | 'all'>('all');
+  const [activeTab, setActiveTab] = useState<'main' | 'history'>('main');
   const [showNewModal, setShowNewModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<OrderWithItems | null>(null);
   const [assignTarget, setAssignTarget] = useState<OrderWithItems | null>(null);
@@ -176,11 +176,14 @@ export default function OrderManagement() {
         (o.order_number ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (o.customer_phone ?? '').includes(searchTerm);
       const matchStatus = statusFilter === 'all' || o.status === statusFilter;
+      
       const isActive = !['delivered', 'cancelled'].includes(o.status);
-      const matchDate = dateFilter === 'all' || new Date(o.created_at) >= today || isActive;
-      return matchSearch && matchStatus && matchDate;
+      const isToday = new Date(o.created_at) >= today;
+      const matchTab = activeTab === 'main' ? (isActive || isToday) : (!isActive && !isToday);
+
+      return matchSearch && matchStatus && matchTab;
     });
-  }, [orders, searchTerm, statusFilter, dateFilter]);
+  }, [orders, searchTerm, statusFilter, activeTab]);
 
   // ---------- Handlers -------------------------------------------------------
 
@@ -289,6 +292,30 @@ export default function OrderManagement() {
           </>
         )}
 
+        {/* Tabs */}
+        <div className="flex border-b border-gray-200 mb-6 overflow-x-auto hide-scrollbar">
+          <button
+            onClick={() => setActiveTab('main')}
+            className={`pb-3 px-4 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${
+              activeTab === 'main'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Panel Principal (Activos y Hoy)
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`pb-3 px-4 font-medium text-sm border-b-2 transition-colors whitespace-nowrap ${
+              activeTab === 'history'
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            Histórico (Días anteriores)
+          </button>
+        </div>
+
         {/* Filters */}
         <div className="bg-white rounded-lg shadow-sm p-4 mb-5">
           <div className="flex flex-wrap gap-3">
@@ -301,17 +328,6 @@ export default function OrderManagement() {
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-9 pr-4 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-            </div>
-            <div className="flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-gray-400 flex-shrink-0" />
-              <select
-                value={dateFilter}
-                onChange={(e) => setDateFilter(e.target.value as 'today' | 'all')}
-                className="text-sm px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="today">Pedidos de hoy</option>
-                <option value="all">Histórico (todos)</option>
-              </select>
             </div>
             <div className="flex items-center gap-2">
               <Filter className="w-4 h-4 text-gray-400 flex-shrink-0" />
