@@ -1393,6 +1393,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                   );
                 }
 
+              } else if (msgType === 'button') {
+                // Template quick reply button
+                const payload = message.button?.payload;
+                if (payload) {
+                  console.log(`🔘 Botón de plantilla recibido de ${from}: ${payload}`);
+                  await processDriverButtonResponse(from, payload);
+                } else {
+                  console.warn('⚠️ Mensaje de botón sin payload:', JSON.stringify(message.button));
+                }
+
               } else if (msgType === 'interactive') {
                 // Interactive message — driver pressed a quick reply button
                 const buttonReply = message.interactive?.button_reply;
