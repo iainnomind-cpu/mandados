@@ -206,6 +206,11 @@ export async function manualAssignOrder(
 
     const oldDriverId = currentOrder?.assigned_driver_id;
 
+    // If the order is already assigned to the exact same driver, do nothing and return.
+    if (oldDriverId === driverId) {
+        return { driverId, routeId: 'route_placeholder', stopId: 'stop_placeholder' };
+    }
+
     // Update order: status → assigned, assigned_driver_id
     const { error: orderUpdateErr } = await supabase
         .from('orders')

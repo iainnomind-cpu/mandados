@@ -141,50 +141,51 @@ export async function markOrderAsDelivered(orderId: string, userId?: string) {
 
   if (fetchError || !order) throw fetchError || new Error('Order not found');
 
-  let assignmentId = null;
-  if (order.assigned_driver_id) {
+  const driverId = order.assigned_driver_id;
+  const now = new Date().toISOString();
+
+  if (driverId) {
+    // 1. Mark assignment as completed (if any)
     const { data: assignment } = await supabase
       .from('assignments')
       .select('id')
       .eq('order_id', orderId)
-      .eq('driver_id', order.assigned_driver_id)
+      .eq('driver_id', driverId)
       .in('status', ['assigned', 'accepted', 'in_progress'])
       .maybeSingle();
-    if (assignment) assignmentId = assignment.id;
-  }
 
-  const now = new Date().toISOString();
+    if (assignment) {
+      await supabase
+        .from('assignments')
+        .update({ status: 'completed', delivered_at: now })
+        .eq('id', assignment.id);
+    }
 
-  if (assignmentId) {
-    await supabase
-      .from('assignments')
-      .update({ status: 'completed', delivered_at: now })
-      .eq('id', assignmentId);
-
+    // 2. Fetch driver stats
     const { data: driver } = await supabase
       .from('drivers')
-      .select('total_deliveries, active_load_count')
-      .eq('id', order.assigned_driver_id)
+      .select('total_deliveries')
+      .eq('id', driverId)
       .single();
 
-    if (driver) {
-      // Count remaining active assignments AFTER completing this one
-      const { count: remainingActive } = await supabase
-        .from('assignments')
-        .select('*', { count: 'exact', head: true })
-        .eq('driver_id', order.assigned_driver_id)
-        .in('status', ['assigned', 'accepted', 'in_progress']);
+    // 3. Recount remaining active assignments
+    const { count: remainingActive } = await supabase
+      .from('assignments')
+      .select('*', { count: 'exact', head: true })
+      .eq('driver_id', driverId)
+      .in('status', ['assigned', 'accepted', 'in_progress']);
 
-      const newLoad = Math.max(0, remainingActive ?? 0);
-      await supabase
-        .from('drivers')
-        .update({
-          status: newLoad === 0 ? 'available' : 'busy',
-          active_load_count: newLoad,
-          total_deliveries: (driver.total_deliveries || 0) + 1,
-        })
-        .eq('id', order.assigned_driver_id);
-    }
+    const newLoad = Math.max(0, remainingActive ?? 0);
+
+    // 4. Update driver
+    await supabase
+      .from('drivers')
+      .update({
+        status: newLoad === 0 ? 'available' : 'busy',
+        active_load_count: newLoad,
+        total_deliveries: (driver?.total_deliveries || 0) + 1,
+      })
+      .eq('id', driverId);
   }
 
   await supabase
