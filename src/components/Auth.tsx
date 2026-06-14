@@ -3,13 +3,11 @@ import { Truck } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function Auth() {
-  const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  const { signIn, signUp } = useAuth();
+  const { signIn } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -17,16 +15,8 @@ export default function Auth() {
     setLoading(true);
 
     try {
-      if (isLogin) {
-        const { error } = await signIn(email, password);
-        if (error) throw error;
-      } else {
-        if (!fullName.trim()) {
-          throw new Error('Por favor ingresa tu nombre completo');
-        }
-        const { error } = await signUp(email, password, fullName);
-        if (error) throw error;
-      }
+      const { error } = await signIn(email, password);
+      if (error) throw error;
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message);
@@ -51,7 +41,7 @@ export default function Auth() {
           ERP System
         </h1>
         <p className="text-center text-gray-600 mb-8">
-          {isLogin ? 'Inicia sesión para continuar' : 'Crea tu cuenta'}
+          Inicia sesión para continuar
         </p>
 
         {error && (
@@ -61,21 +51,6 @@ export default function Auth() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {!isLogin && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Nombre Completo
-              </label>
-              <input
-                type="text"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
-            </div>
-          )}
-
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Email
@@ -108,23 +83,9 @@ export default function Auth() {
             disabled={loading}
             className="w-full py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 font-medium"
           >
-            {loading ? 'Cargando...' : isLogin ? 'Iniciar Sesión' : 'Crear Cuenta'}
+            {loading ? 'Cargando...' : 'Iniciar Sesión'}
           </button>
         </form>
-
-        <div className="mt-6 text-center">
-          <button
-            onClick={() => {
-              setIsLogin(!isLogin);
-              setError('');
-            }}
-            className="text-blue-600 hover:text-blue-700 text-sm font-medium"
-          >
-            {isLogin
-              ? '¿No tienes cuenta? Regístrate'
-              : '¿Ya tienes cuenta? Inicia sesión'}
-          </button>
-        </div>
       </div>
     </div>
   );
