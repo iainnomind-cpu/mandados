@@ -39,11 +39,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     direccion_recoleccion,
     direccion_entrega,
     total,
+    order_id,
   } = req.body || {};
 
-  if (!to || !template_name) {
+  if (!to || !template_name || !order_id) {
     return res.status(400).json({
-      error: 'Missing required fields: "to" and "template_name"',
+      error: 'Missing required fields: "to", "template_name" and "order_id"',
     });
   }
 
@@ -71,6 +72,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             { type: 'text', text: descripcion_producto || 'Pedido' }, // {{4}}
             { type: 'text', text: total || '$0' }, // {{5}}
           ],
+        },
+        {
+          type: 'button',
+          sub_type: 'quick_reply',
+          index: '0',
+          parameters: [{ type: 'payload', payload: `DELIVERED_OK:${order_id}` }],
+        },
+        {
+          type: 'button',
+          sub_type: 'quick_reply',
+          index: '1',
+          parameters: [{ type: 'payload', payload: `ORDER_PROBLEM:${order_id}` }],
         },
       ],
     },

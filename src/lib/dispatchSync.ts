@@ -594,6 +594,7 @@ async function sendOrderTemplateNotification(orderId: string): Promise<void> {
                 direccion_recoleccion: direccionRecoleccion,
                 direccion_entrega: direccionEntrega,
                 total: `$${order.total_amount || order.delivery_fee || 0}`,
+                order_id: orderId,
             }),
         });
 
