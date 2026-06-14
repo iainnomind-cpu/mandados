@@ -775,6 +775,23 @@ async function processIncomingMessage(
     console.log(`\n${'='.repeat(50)}`);
     console.log(`📱 Procesando mensaje de ${customerPhone} (raw: ${from}): "${messageText || '[imagen]'}"`);
 
+    // 0. Check if this is an active driver (busy or available)
+    // The driver phone might contain spaces or country codes, so we use a wildcard match
+    const drivers = await supabaseGet('drivers', `phone=ilike.%${encodeURIComponent(customerPhone)}%&select=id,full_name,status`);
+    if (drivers.length > 0) {
+      const driver = drivers[0];
+      if (driver.status === 'busy' || driver.status === 'available') {
+        console.log(`🛑 Mensaje interceptado: El remitente ${customerPhone} es el repartidor activo ${driver.full_name} (${driver.status}). Bot desactivado.`);
+        await sendWhatsAppMessage(
+          from,
+          `🤖 Hola ${driver.full_name || 'repartidor'}, el sistema detecta que estás en turno activo. Para reportar novedades de un pedido usa los botones de tu asignación o contacta a cabina. (El bot automático de clientes está desactivado para tu número).`
+        );
+        return; // Stop processing and do not trigger chatbot
+      } else {
+        console.log(`ℹ️ El remitente ${customerPhone} es un repartidor pero está en estado '${driver.status}'. Se permitirá el uso del bot como cliente.`);
+      }
+    }
+
     // 1. Find or create customer by phone (using cleaned 10-digit number)
     let customers = await supabaseGet('customers', `phone=eq.${encodeURIComponent(customerPhone)}&select=*`);
     let customer: any;
