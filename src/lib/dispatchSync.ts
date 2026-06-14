@@ -501,7 +501,7 @@ async function sendOrderTemplateNotification(orderId: string): Promise<void> {
     // Fetch the full order and the assigned driver's phone & name
     const { data: order, error } = await supabase
         .from('orders')
-        .select('customer_name, customer_phone, pickup_address, delivery_address, items, special_instructions, total_amount, delivery_fee, driver:assigned_driver_id(full_name, phone)')
+        .select('customer_name, customer_phone, pickup_address, delivery_address, items, order_items(*), special_instructions, total_amount, delivery_fee, driver:assigned_driver_id(full_name, phone)')
         .eq('id', orderId)
         .single();
 
@@ -530,8 +530,9 @@ async function sendOrderTemplateNotification(orderId: string): Promise<void> {
 
     // Build product description from items array
     let descripcionProducto = '';
-    if (order.items && Array.isArray(order.items) && order.items.length > 0) {
-        descripcionProducto = order.items
+    const itemList = order.order_items && order.order_items.length > 0 ? order.order_items : (order.items || []);
+    if (itemList && Array.isArray(itemList) && itemList.length > 0) {
+        descripcionProducto = itemList
             .map((item: any) => {
                 const name = item.name || item.product_name || '';
                 const qty = item.quantity ? `x${item.quantity}` : '';
@@ -540,12 +541,21 @@ async function sendOrderTemplateNotification(orderId: string): Promise<void> {
             .filter(Boolean)
             .join(', ');
     }
-    // Fallback to special_instructions if items didn't yield a description
-    if (!descripcionProducto && order.special_instructions) {
-        descripcionProducto = order.special_instructions
+    // Append special_instructions to the description if present
+    if (order.special_instructions) {
+        const cleanedInstructions = order.special_instructions
             .replace(/^Pedido tomado por WhatsApp\.\s*Artículos:\s*/i, '')
             .trim();
+            
+        if (cleanedInstructions) {
+            if (descripcionProducto) {
+                descripcionProducto += ` - Notas: ${cleanedInstructions}`;
+            } else {
+                descripcionProducto = cleanedInstructions;
+            }
+        }
     }
+
     if (!descripcionProducto) {
         descripcionProducto = 'Tu pedido';
     }

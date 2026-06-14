@@ -1,9 +1,12 @@
-import { useState } from 'react';
-import { X, Plus, Trash2, ShoppingCart, Zap, Package } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, Plus, Trash2, ShoppingCart, Zap, Package, Truck, Circle } from 'lucide-react';
 import { createOrderWithItems } from '../../lib/orderSync';
+import { manualAssignOrder } from '../../lib/dispatchSync';
 import { calcularComision, SERVICE_TYPE_DESCRIPTIONS } from '../../lib/comision';
 import { OrderItemDraft, OrderType, OrderSource, OrderPriority } from '../../types';
 import type { ServiceType } from '../../lib/comision';
+import { supabase } from '../../lib/supabase';
+import { useAuth } from '../../contexts/AuthContext';
 
 interface NewOrderModalProps {
   onClose: () => void;
@@ -18,12 +21,29 @@ const EMPTY_ITEM: OrderItemDraft = {
 
 
 export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderModalProps) {
+  const { profile } = useAuth();
+
   // --- Customer fields ---
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [pickupAddress, setPickupAddress] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
-  // --- Zonas (removed unused state) ---
+
+  // --- Driver assignment ---
+  const [selectedDriverId, setSelectedDriverId] = useState('');
+  const [drivers, setDrivers] = useState<{id: string; full_name: string; status: string; active_load_count: number}[]>([]);
+
+  // Fetch active drivers on mount
+  useEffect(() => {
+    supabase
+      .from('drivers')
+      .select('id, full_name, status, active_load_count')
+      .in('status', ['available', 'busy'])
+      .order('status', { ascending: true }) // available first
+      .then(({ data }) => {
+        if (data) setDrivers(data);
+      });
+  }, []);
 
   // --- Tipo de Servicio y Comisión ---
   const [serviceType, setServiceType] = useState<ServiceType>('sencillo');
@@ -82,12 +102,11 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
     try {
       const orderNumber = `ORD-${Date.now()}`;
 
-      await createOrderWithItems(
+      const createdOrder = await createOrderWithItems(
         {
           order_number: orderNumber,
           customer_name: customerName.trim(),
           customer_phone: customerPhone.trim(),
-          // Store delivery_address as a JSON object for compatibility
           delivery_address: { street: deliveryAddress.trim(), city: '', state: '' },
           order_type: orderType,
           service_type: serviceType,
@@ -103,11 +122,22 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
         } as Parameters<typeof createOrderWithItems>[0],
         validItems.map(it => ({
           ...it,
-          unit_price: 0, // No pricing — field kept for DB compat
+          unit_price: 0,
         }))
       );
 
-      onSuccess('Pedido creado exitosamente');
+      // Assign driver immediately if one was selected
+      if (selectedDriverId && createdOrder?.id && profile?.id) {
+        try {
+          await manualAssignOrder(createdOrder.id, selectedDriverId, profile.id);
+        } catch (assignErr: any) {
+          console.warn('Pedido creado pero no se pudo asignar repartidor:', assignErr.message);
+          onSuccess('Pedido creado. No se pudo asignar el repartidor automáticamente.');
+          return;
+        }
+      }
+
+      onSuccess(selectedDriverId ? 'Pedido creado y repartidor asignado.' : 'Pedido creado exitosamente');
     } catch (err) {
       console.error('create order error', err);
       onError('Error al crear el pedido. Intenta de nuevo.');
@@ -394,6 +424,57 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
                 </div>
               </div>
             </div>
+          </section>
+
+          {/* Driver assignment */}
+          <section>
+            <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3 flex items-center gap-2">
+              <Truck className="w-4 h-4" />
+              Asignar Repartidor (Opcional)
+            </h3>
+            {drivers.length === 0 ? (
+              <p className="text-sm text-gray-400 italic">No hay repartidores disponibles en este momento.</p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {drivers.map((d) => {
+                  const isFree = d.active_load_count === 0;
+                  const isSelected = selectedDriverId === d.id;
+                  return (
+                    <button
+                      key={d.id}
+                      type="button"
+                      onClick={() => setSelectedDriverId(isSelected ? '' : d.id)}
+                      className={`flex items-center gap-3 p-3 rounded-xl border-2 text-left transition-all ${
+                        isSelected
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                        isFree ? 'bg-emerald-100' : 'bg-amber-100'
+                      }`}>
+                        <Circle className={`w-3 h-3 fill-current ${
+                          isFree ? 'text-emerald-500' : 'text-amber-500'
+                        }`} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className={`text-sm font-semibold truncate ${
+                          isSelected ? 'text-blue-800' : 'text-gray-800'
+                        }`}>{d.full_name || 'Sin nombre'}</p>
+                        <p className={`text-xs ${
+                          isFree ? 'text-emerald-600' : 'text-amber-600'
+                        }`}>
+                          {isFree ? 'Libre' : `${d.active_load_count} pedido${d.active_load_count > 1 ? 's' : ''} activo${d.active_load_count > 1 ? 's' : ''}`}
+                        </p>
+                      </div>
+                      {isSelected && (
+                        <span className="ml-auto text-blue-600 text-xs font-bold">✓ Seleccionado</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </section>
 
           {/* Special instructions */}
