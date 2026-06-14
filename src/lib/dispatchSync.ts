@@ -498,10 +498,10 @@ export async function fetchDriversWithProfiles(): Promise<DriverWithProfile[]> {
 //   {{5}} = total (comisión)
 // ============================================================
 async function sendOrderTemplateNotification(orderId: string): Promise<void> {
-    // Fetch the full order and the assigned driver's phone
+    // Fetch the full order and the assigned driver's phone & name
     const { data: order, error } = await supabase
         .from('orders')
-        .select('customer_name, customer_phone, pickup_address, delivery_address, items, special_instructions, total_amount, delivery_fee, driver:assigned_driver_id(phone)')
+        .select('customer_name, customer_phone, pickup_address, delivery_address, items, special_instructions, total_amount, delivery_fee, driver:assigned_driver_id(full_name, phone)')
         .eq('id', orderId)
         .single();
 
@@ -511,12 +511,13 @@ async function sendOrderTemplateNotification(orderId: string): Promise<void> {
     }
 
     // Need the driver's phone number to send to
-    const driver = order.driver as { phone?: string } | null;
+    const driver = order.driver as { full_name?: string, phone?: string } | null;
     const phone = driver?.phone;
     if (!phone) {
         console.warn('[TMS→WA] El repartidor asignado no tiene teléfono, no se puede enviar plantilla:', orderId);
         return;
     }
+    const nombreRepartidor = driver?.full_name || 'Repartidor';
 
     // Format phone for WhatsApp (needs country code, e.g. "521XXXXXXXXXX")
     let waPhone = phone.replace(/[^0-9]/g, '');
@@ -563,6 +564,7 @@ async function sendOrderTemplateNotification(orderId: string): Promise<void> {
     const templateName = (typeof window === 'undefined' ? process.env.WHATSAPP_TEMPLATE_NAME : null) || 'asignacion_mandado_repartidor';
 
     console.log(`[TMS→WA] Enviando plantilla "${templateName}" a ${waPhone}:`, {
+        nombre_repartidor: nombreRepartidor,
         nombre_cliente: nombreCliente,
         descripcion_producto: descripcionProducto,
         direccion_recoleccion: direccionRecoleccion,
@@ -576,6 +578,7 @@ async function sendOrderTemplateNotification(orderId: string): Promise<void> {
             body: JSON.stringify({
                 to: waPhone,
                 template_name: templateName,
+                nombre_repartidor: nombreRepartidor,
                 nombre_cliente: nombreCliente,
                 descripcion_producto: descripcionProducto,
                 direccion_recoleccion: direccionRecoleccion,

@@ -33,6 +33,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const {
     to,
     template_name,
+    nombre_repartidor,
     nombre_cliente,
     descripcion_producto,
     direccion_recoleccion,
@@ -47,6 +48,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   // Build the template message payload for Meta Graph API
+  // The Meta template "asignacion_mandado_repartidor" expects:
+  // {{1}} = Nombre del Repartidor
+  // {{2}} = Recolección
+  // {{3}} = Entrega
+  // {{4}} = Detalle del pedido
+  // {{5}} = Cobro
   const payload: any = {
     messaging_product: 'whatsapp',
     to,
@@ -58,11 +65,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         {
           type: 'body',
           parameters: [
-            { type: 'text', text: nombre_cliente || 'Cliente' },
-            { type: 'text', text: descripcion_producto || 'Pedido' },
-            { type: 'text', text: direccion_recoleccion || 'Por confirmar' },
-            { type: 'text', text: direccion_entrega || 'Por confirmar' },
-            { type: 'text', text: total || '$0' },
+            { type: 'text', text: nombre_repartidor || nombre_cliente || 'Repartidor' }, // {{1}}
+            { type: 'text', text: direccion_recoleccion || 'Por confirmar' }, // {{2}}
+            { type: 'text', text: direccion_entrega || 'Por confirmar' }, // {{3}}
+            { type: 'text', text: descripcion_producto || 'Pedido' }, // {{4}}
+            { type: 'text', text: total || '$0' }, // {{5}}
           ],
         },
       ],
