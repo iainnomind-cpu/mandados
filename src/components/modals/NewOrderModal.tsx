@@ -21,6 +21,7 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
   // --- Customer fields ---
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [pickupAddress, setPickupAddress] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   // --- Zonas (removed unused state) ---
 
@@ -93,8 +94,7 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
           source,
           priority,
           status: 'pending',
-          // pickup address is optional for delivery-only orders
-          pickup_address: { street: '', city: '', state: '' },
+          pickup_address: pickupAddress.trim() ? { street: pickupAddress.trim(), city: '', state: '' } : null,
           special_instructions: specialInstructions.trim() || undefined,
           payment_method: 'cash',
           payment_status: 'pending',
@@ -163,6 +163,18 @@ export default function NewOrderModal({ onClose, onSuccess, onError }: NewOrderM
                   onChange={(e) => setCustomerPhone(e.target.value)}
                   placeholder="+52 55 1234 5678"
                   required
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Dirección de recolección (Opcional)
+                </label>
+                <input
+                  type="text"
+                  value={pickupAddress}
+                  onChange={(e) => setPickupAddress(e.target.value)}
+                  placeholder="Ej. Tienda Centro / Calle Madero #123"
                   className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
