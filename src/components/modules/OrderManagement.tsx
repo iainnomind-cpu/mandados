@@ -141,7 +141,7 @@ export default function OrderManagement() {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [dateFilter, setDateFilter] = useState<'today' | 'all'>('today');
+  const [dateFilter, setDateFilter] = useState<'today' | 'all'>('all');
   const [showNewModal, setShowNewModal] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<OrderWithItems | null>(null);
   const [assignTarget, setAssignTarget] = useState<OrderWithItems | null>(null);
@@ -176,7 +176,8 @@ export default function OrderManagement() {
         (o.order_number ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
         (o.customer_phone ?? '').includes(searchTerm);
       const matchStatus = statusFilter === 'all' || o.status === statusFilter;
-      const matchDate = dateFilter === 'all' || new Date(o.created_at) >= today;
+      const isActive = !['delivered', 'cancelled'].includes(o.status);
+      const matchDate = dateFilter === 'all' || new Date(o.created_at) >= today || isActive;
       return matchSearch && matchStatus && matchDate;
     });
   }, [orders, searchTerm, statusFilter, dateFilter]);

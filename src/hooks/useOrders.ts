@@ -68,9 +68,9 @@ export function useOrders(options: UseOrdersOptions = {}): UseOrdersReturn {
             const { data, error: fetchError } = await query;
             if (fetchError) throw fetchError;
             setOrders((data as OrderWithItems[]) || []);
-        } catch (err) {
+        } catch (err: any) {
             console.error('useOrders load error:', err);
-            setError('Error al cargar los pedidos');
+            setError(err.message || 'Error al cargar los pedidos');
         } finally {
             setLoading(false);
         }

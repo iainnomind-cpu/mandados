@@ -309,23 +309,29 @@ export async function cancelOrder(
   reason: string,
   userId?: string
 ) {
-  const { data: assignment } = await supabase
-    .from('assignments')
-    .select('id, driver_id, status')
-    .eq('order_id', orderId)
-    .in('status', ['assigned', 'accepted', 'in_progress'])
-    .maybeSingle();
+  // 1. Get the order to find the assigned driver
+  const { data: order } = await supabase
+    .from('orders')
+    .select('assigned_driver_id')
+    .eq('id', orderId)
+    .single();
 
-  if (assignment) {
+  const driverId = order?.assigned_driver_id;
+
+  // 2. Cancel active assignment if it exists
+  if (driverId) {
     await supabase
       .from('assignments')
       .update({ status: 'cancelled' })
-      .eq('id', assignment.id);
+      .eq('order_id', orderId)
+      .eq('driver_id', driverId)
+      .in('status', ['assigned', 'accepted', 'in_progress']);
 
+    // 3. Recalculate remaining active assignments for this driver
     const { count: remainingActive } = await supabase
       .from('assignments')
       .select('*', { count: 'exact', head: true })
-      .eq('driver_id', assignment.driver_id)
+      .eq('driver_id', driverId)
       .in('status', ['assigned', 'accepted', 'in_progress']);
 
     const newLoad = Math.max(0, remainingActive ?? 0);
@@ -335,12 +341,18 @@ export async function cancelOrder(
         status: newLoad === 0 ? 'available' : 'busy',
         active_load_count: newLoad,
       })
-      .eq('id', assignment.driver_id);
+      .eq('id', driverId);
   }
 
+  // 4. Update the order itself
   await supabase
     .from('orders')
-    .update({ status: 'cancelled', updated_at: new Date().toISOString() })
+    .update({ 
+      status: 'cancelled', 
+      updated_at: new Date().toISOString(),
+      // Unassign the driver so it's fully cleared from their load visually
+      assigned_driver_id: null 
+    })
     .eq('id', orderId);
 
   await supabase.from('order_events').insert([

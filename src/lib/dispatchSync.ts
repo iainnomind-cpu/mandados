@@ -196,12 +196,49 @@ export async function manualAssignOrder(
         throw new Error(`El conductor ya tiene ${driver.active_load_count} pedidos activos. Máximo permitido: ${MAX_LOAD_PER_DRIVER}`);
     }
 
+    // Get current order to see if it's already assigned to someone else
+    const { data: currentOrder, error: orderFetchErr } = await supabase
+        .from('orders')
+        .select('assigned_driver_id')
+        .eq('id', orderId)
+        .single();
+    if (orderFetchErr) throw orderFetchErr;
+
+    const oldDriverId = currentOrder?.assigned_driver_id;
+
     // Update order: status → assigned, assigned_driver_id
     const { error: orderUpdateErr } = await supabase
         .from('orders')
         .update({ status: 'assigned', assigned_driver_id: driverId })
         .eq('id', orderId);
     if (orderUpdateErr) throw orderUpdateErr;
+
+    // Handle reassignment: free up the old driver
+    if (oldDriverId && oldDriverId !== driverId) {
+        // Cancel old assignment
+        await supabase
+            .from('assignments')
+            .update({ status: 'cancelled' })
+            .eq('order_id', orderId)
+            .eq('driver_id', oldDriverId)
+            .in('status', ['assigned', 'accepted', 'in_progress']);
+
+        // Recalculate old driver's load
+        const { count: oldRemainingActive } = await supabase
+            .from('assignments')
+            .select('*', { count: 'exact', head: true })
+            .eq('driver_id', oldDriverId)
+            .in('status', ['assigned', 'accepted', 'in_progress']);
+
+        const newOldLoad = Math.max(0, oldRemainingActive ?? 0);
+        await supabase
+            .from('drivers')
+            .update({
+                status: newOldLoad === 0 ? 'available' : 'busy',
+                active_load_count: newOldLoad,
+            })
+            .eq('id', oldDriverId);
+    }
 
     // Increment driver active_load_count
     const { data: driverCurrent } = await supabase
