@@ -1233,11 +1233,11 @@ async function processIncomingMessage(
     await sendWhatsAppMessage(from, finalMessage);
     console.log('✅ Respuesta enviada a', from);
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ Error procesando mensaje:', error);
     await sendWhatsAppMessage(
       from,
-      '😅 Disculpa, tuve un problema técnico. ¿Podrías repetir tu mensaje?'
+      `😅 Disculpa, tuve un problema técnico. (Error: ${error.message}). ¿Podrías repetir tu mensaje?`
     );
   }
 }
