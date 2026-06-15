@@ -163,7 +163,7 @@ async function supabaseGet(table: string, query: string): Promise<any[]> {
   try {
       body = JSON.parse(rawText);
   } catch (e) {
-      throw new Error(`Supabase GET failed parsing JSON (Status ${res.status}): ${rawText.substring(0, 100)}...`);
+      throw new Error(`Supabase GET failed. URL: ${url} | Status: ${res.status} | Response: ${rawText.substring(0, 100)}...`);
   }
 
   if (!res.ok || !Array.isArray(body)) {
@@ -189,7 +189,7 @@ async function supabaseInsert(table: string, data: Record<string, any>): Promise
   try {
       body = JSON.parse(rawText);
   } catch (e) {
-      throw new Error(`Supabase INSERT failed parsing JSON (Status ${res.status}): ${rawText.substring(0, 100)}...`);
+      throw new Error(`Supabase INSERT failed. URL: ${SUPABASE_URL}/rest/v1/${table} | Status: ${res.status} | Response: ${rawText.substring(0, 100)}...`);
   }
 
   if (!res.ok) {
@@ -215,7 +215,7 @@ async function supabaseUpdate(table: string, id: string, data: Record<string, an
   try {
       body = JSON.parse(rawText);
   } catch (e) {
-      throw new Error(`Supabase UPDATE failed parsing JSON (Status ${res.status}): ${rawText.substring(0, 100)}...`);
+      throw new Error(`Supabase UPDATE failed. URL: ${SUPABASE_URL}/rest/v1/${table}?id=eq.${id} | Status: ${res.status} | Response: ${rawText.substring(0, 100)}...`);
   }
 
   if (!res.ok) {
