@@ -809,7 +809,7 @@ async function processIncomingMessage(
 
     // 0. Check if this is an active driver (busy or available)
     // The driver phone might contain spaces or country codes, so we use a wildcard match
-    const drivers = await supabaseGet('drivers', `phone=ilike.%${encodeURIComponent(customerPhone)}%&select=id,full_name,status`);
+    const drivers = await supabaseGet('drivers', `phone=ilike.*${encodeURIComponent(customerPhone)}*&select=id,full_name,status`);
     if (drivers.length > 0) {
       const driver = drivers[0];
       if (driver.status === 'busy' || driver.status === 'available') {
