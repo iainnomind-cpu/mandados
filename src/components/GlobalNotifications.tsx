@@ -1,12 +1,28 @@
 import { useEffect, useState } from 'react';
 import {
-    MessageCircle, Package, X, Bell, BellOff, Trash2, AlertTriangle, ArrowRight,
+    MessageCircle, Package, X, Bell, BellOff, Trash2, AlertTriangle, ArrowRight, Bot, CheckCircle2,
 } from 'lucide-react';
 import { useGlobalNotifications, AppNotification } from '../hooks/useGlobalNotifications';
 
 // Helper: dispatch navigation event (works from anywhere, no React context)
 function navigateToChatConversation(conversationId?: string) {
     window.dispatchEvent(new CustomEvent('erp:navigate-to-chat', { detail: conversationId }));
+}
+
+// ─── Icon + colours per type ───
+function getTypeConfig(type: AppNotification['type']) {
+    switch (type) {
+        case 'escalation':
+            return { Icon: AlertTriangle, iconBg: 'bg-red-500 text-white', cardBg: 'bg-red-50 border-red-300 shadow-red-500/30', textTitle: 'text-red-800', textBody: 'text-red-600', listBg: 'border-red-100 bg-red-50/60' };
+        case 'new_message':
+            return { Icon: MessageCircle, iconBg: 'bg-blue-500 text-white', cardBg: 'bg-white border-blue-200', textTitle: 'text-slate-800', textBody: 'text-slate-500', listBg: 'border-slate-100 bg-white' };
+        case 'bot_order':
+            return { Icon: Bot, iconBg: 'bg-violet-500 text-white', cardBg: 'bg-white border-violet-200', textTitle: 'text-slate-800', textBody: 'text-slate-500', listBg: 'border-violet-100 bg-violet-50/40' };
+        case 'driver_delivered':
+            return { Icon: CheckCircle2, iconBg: 'bg-emerald-500 text-white', cardBg: 'bg-white border-emerald-200', textTitle: 'text-slate-800', textBody: 'text-slate-500', listBg: 'border-emerald-100 bg-emerald-50/40' };
+        default: // new_order
+            return { Icon: Package, iconBg: 'bg-emerald-500 text-white', cardBg: 'bg-white border-emerald-200', textTitle: 'text-slate-800', textBody: 'text-slate-500', listBg: 'border-slate-100 bg-white' };
+    }
 }
 
 // ─── Notification item in dropdown ───
@@ -17,7 +33,7 @@ function NotificationItem({
     n: AppNotification;
     onClose?: () => void;
 }) {
-    const isMessage = n.type === 'new_message';
+    const { Icon, iconBg, listBg, textTitle, textBody } = getTypeConfig(n.type);
     const isEscalation = n.type === 'escalation';
     const timeStr = new Date(n.timestamp).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
 
@@ -27,21 +43,14 @@ function NotificationItem({
     };
 
     return (
-        <div className={`flex flex-col border-b transition-colors ${isEscalation ? 'border-red-100 bg-red-50/60' : 'border-slate-100 bg-white'
-            } ${n.read ? 'opacity-60' : ''}`}>
+        <div className={`flex flex-col border-b transition-colors ${listBg} ${n.read ? 'opacity-60' : ''}`}>
             <div className="flex items-start gap-3 px-4 py-3">
-                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isEscalation
-                    ? 'bg-red-500 text-white'
-                    : isMessage ? 'bg-blue-100 text-blue-600' : 'bg-emerald-100 text-emerald-600'
-                    }`}>
-                    {isEscalation
-                        ? <AlertTriangle className="w-4 h-4" />
-                        : isMessage ? <MessageCircle className="w-4 h-4" /> : <Package className="w-4 h-4" />
-                    }
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${iconBg}`}>
+                    <Icon className="w-4 h-4" />
                 </div>
                 <div className="flex-1 min-w-0">
-                    <p className={`text-xs font-bold ${isEscalation ? 'text-red-800' : 'text-slate-700'}`}>{n.title}</p>
-                    <p className={`text-xs mt-0.5 ${isEscalation ? 'text-red-600' : 'text-slate-500'}`}>{n.body}</p>
+                    <p className={`text-xs font-bold ${textTitle}`}>{n.title}</p>
+                    <p className={`text-xs mt-0.5 ${textBody}`}>{n.body}</p>
                 </div>
                 <span className="text-[10px] text-slate-400 shrink-0 mt-0.5">{timeStr}</span>
             </div>
@@ -95,7 +104,7 @@ export function NotificationBell() {
                     {/* Backdrop */}
                     <div className="fixed inset-0 z-40" onClick={() => setShowPanel(false)} />
 
-                    {/* Panel — anchored right but won't overflow left */}
+                    {/* Panel */}
                     <div className="absolute right-0 top-full mt-2 w-96 max-w-[calc(100vw-1rem)] bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden z-50">
                         <div className="px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 flex items-center justify-between">
                             <div className="flex items-center gap-2">
@@ -149,57 +158,42 @@ export function NotificationBell() {
     );
 }
 
-// ─── Floating toast — positioned bottom-center to avoid being cut off ───
+// ─── Floating toast — bottom-center ───
 export default function GlobalNotifications() {
     const { latestToast, dismissToast } = useGlobalNotifications();
     const isEscalation = latestToast?.type === 'escalation';
 
     useEffect(() => {
         if (!latestToast) return;
-        const timer = setTimeout(dismissToast, isEscalation ? 15000 : 4000);
+        const timer = setTimeout(dismissToast, isEscalation ? 15000 : 5000);
         return () => clearTimeout(timer);
     }, [latestToast, dismissToast, isEscalation]);
 
     if (!latestToast) return null;
 
+    const { Icon, iconBg, cardBg, textTitle, textBody } = getTypeConfig(latestToast.type);
+
     const handleGoToChat = () => {
-        // Use custom event — works regardless of React context timing
         navigateToChatConversation(latestToast.conversationId);
         dismissToast();
     };
 
     return (
         <>
-            {/* Bottom-center toast — fully visible, never cut off by sidebar */}
             <div
                 className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] w-full max-w-md px-4"
                 style={{ animation: isEscalation ? 'notif-rise-shake 0.5s ease-out' : 'notif-rise 0.3s ease-out' }}
             >
-                <div className={`flex flex-col rounded-2xl shadow-2xl border overflow-hidden ${isEscalation
-                    ? 'bg-red-50 border-red-300 shadow-red-500/30'
-                    : latestToast.type === 'new_message'
-                        ? 'bg-white border-blue-200'
-                        : 'bg-white border-emerald-200'
-                    }`}>
+                <div className={`flex flex-col rounded-2xl shadow-2xl border overflow-hidden ${cardBg}`}>
                     <div className="flex items-center gap-3 px-4 py-3.5">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${isEscalation
-                            ? 'bg-red-500 text-white animate-pulse'
-                            : latestToast.type === 'new_message'
-                                ? 'bg-blue-500 text-white'
-                                : 'bg-emerald-500 text-white'
-                            }`}>
-                            {isEscalation
-                                ? <AlertTriangle className="w-5 h-5" />
-                                : latestToast.type === 'new_message'
-                                    ? <MessageCircle className="w-5 h-5" />
-                                    : <Package className="w-5 h-5" />
-                            }
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${iconBg} ${isEscalation ? 'animate-pulse' : ''}`}>
+                            <Icon className="w-5 h-5" />
                         </div>
                         <div className="flex-1 min-w-0">
-                            <p className={`text-sm font-bold ${isEscalation ? 'text-red-800' : 'text-slate-800'}`}>
+                            <p className={`text-sm font-bold ${textTitle}`}>
                                 {latestToast.title}
                             </p>
-                            <p className={`text-xs mt-0.5 ${isEscalation ? 'text-red-600' : 'text-slate-500'}`}>
+                            <p className={`text-xs mt-0.5 ${textBody}`}>
                                 {latestToast.body}
                             </p>
                         </div>
