@@ -4,8 +4,8 @@ import crypto from 'crypto';
 // ─────────────────────────────────────────────────────────
 // Config & Constants
 // ─────────────────────────────────────────────────────────
-const SUPABASE_URL = process.env.SUPABASE_URL!;
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY!;
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL!;
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.VITE_SUPABASE_ANON_KEY!;
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY!;
 const WHATSAPP_TOKEN = process.env.WHATSAPP_TOKEN!;
 const WHATSAPP_PHONE_ID = process.env.WHATSAPP_PHONE_ID!;
@@ -151,10 +151,20 @@ const supabaseHeaders = {
 };
 
 async function supabaseGet(table: string, query: string): Promise<any[]> {
+  if (!SUPABASE_URL || SUPABASE_URL === 'undefined') {
+      throw new Error(`SUPABASE_URL is not set or undefined. Value: ${SUPABASE_URL}`);
+  }
   const url = `${SUPABASE_URL}/rest/v1/${table}?${query}`;
   console.log('📡 Supabase GET:', url);
   const res = await fetch(url, { headers: supabaseHeaders });
-  const body = await res.json();
+  
+  let body;
+  try {
+      body = await res.json();
+  } catch (e) {
+      const text = await res.text();
+      throw new Error(`Supabase GET failed parsing JSON (Status ${res.status}): ${text.substring(0, 100)}...`);
+  }
 
   if (!res.ok || !Array.isArray(body)) {
     console.error('⚠️ Supabase GET error:', JSON.stringify(body));
@@ -164,13 +174,23 @@ async function supabaseGet(table: string, query: string): Promise<any[]> {
 }
 
 async function supabaseInsert(table: string, data: Record<string, any>): Promise<any> {
+  if (!SUPABASE_URL || SUPABASE_URL === 'undefined') {
+      throw new Error(`SUPABASE_URL is not set or undefined. Value: ${SUPABASE_URL}`);
+  }
   console.log('📡 Supabase INSERT:', table, JSON.stringify(data));
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
     method: 'POST',
     headers: supabaseHeaders,
     body: JSON.stringify(data),
   });
-  const body = await res.json();
+  
+  let body;
+  try {
+      body = await res.json();
+  } catch (e) {
+      const text = await res.text();
+      throw new Error(`Supabase INSERT failed parsing JSON (Status ${res.status}): ${text.substring(0, 100)}...`);
+  }
 
   if (!res.ok) {
     console.error('⚠️ Supabase INSERT error:', JSON.stringify(body));
@@ -180,13 +200,23 @@ async function supabaseInsert(table: string, data: Record<string, any>): Promise
 }
 
 async function supabaseUpdate(table: string, id: string, data: Record<string, any>): Promise<any> {
+  if (!SUPABASE_URL || SUPABASE_URL === 'undefined') {
+      throw new Error(`SUPABASE_URL is not set or undefined. Value: ${SUPABASE_URL}`);
+  }
   console.log('📡 Supabase UPDATE:', table, id, JSON.stringify(data));
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
     method: 'PATCH',
     headers: supabaseHeaders,
     body: JSON.stringify(data),
   });
-  const body = await res.json();
+  
+  let body;
+  try {
+      body = await res.json();
+  } catch (e) {
+      const text = await res.text();
+      throw new Error(`Supabase UPDATE failed parsing JSON (Status ${res.status}): ${text.substring(0, 100)}...`);
+  }
 
   if (!res.ok) {
     console.error('⚠️ Supabase UPDATE error:', JSON.stringify(body));
