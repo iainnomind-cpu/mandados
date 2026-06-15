@@ -159,11 +159,11 @@ async function supabaseGet(table: string, query: string): Promise<any[]> {
   const res = await fetch(url, { headers: supabaseHeaders });
   
   let body;
+  const rawText = await res.text();
   try {
-      body = await res.json();
+      body = JSON.parse(rawText);
   } catch (e) {
-      const text = await res.text();
-      throw new Error(`Supabase GET failed parsing JSON (Status ${res.status}): ${text.substring(0, 100)}...`);
+      throw new Error(`Supabase GET failed parsing JSON (Status ${res.status}): ${rawText.substring(0, 100)}...`);
   }
 
   if (!res.ok || !Array.isArray(body)) {
@@ -185,11 +185,11 @@ async function supabaseInsert(table: string, data: Record<string, any>): Promise
   });
   
   let body;
+  const rawText = await res.text();
   try {
-      body = await res.json();
+      body = JSON.parse(rawText);
   } catch (e) {
-      const text = await res.text();
-      throw new Error(`Supabase INSERT failed parsing JSON (Status ${res.status}): ${text.substring(0, 100)}...`);
+      throw new Error(`Supabase INSERT failed parsing JSON (Status ${res.status}): ${rawText.substring(0, 100)}...`);
   }
 
   if (!res.ok) {
@@ -211,11 +211,11 @@ async function supabaseUpdate(table: string, id: string, data: Record<string, an
   });
   
   let body;
+  const rawText = await res.text();
   try {
-      body = await res.json();
+      body = JSON.parse(rawText);
   } catch (e) {
-      const text = await res.text();
-      throw new Error(`Supabase UPDATE failed parsing JSON (Status ${res.status}): ${text.substring(0, 100)}...`);
+      throw new Error(`Supabase UPDATE failed parsing JSON (Status ${res.status}): ${rawText.substring(0, 100)}...`);
   }
 
   if (!res.ok) {
