@@ -459,7 +459,7 @@ export async function fetchActiveRoutesWithStops(): Promise<DriverRoute[]> {
         .select(`
       *,
       driver:driver_id(
-        id, vehicle_type, vehicle_plate, status, active_load_count, current_lat, current_lng,
+        id, vehicle_type, vehicle_plate, status, active_load_count, current_lat, current_lng, full_name,
         profiles:user_id(full_name)
       ),
       route_stops(

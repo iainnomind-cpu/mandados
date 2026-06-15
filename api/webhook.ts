@@ -1334,6 +1334,20 @@ async function processDriverButtonResponse(from: string, payload: string): Promi
         }
       }
 
+      // Update route_stops
+      await fetch(`${SUPABASE_URL}/rest/v1/route_stops?order_id=eq.${orderId}`, {
+        method: 'PATCH',
+        headers: supabaseHeaders,
+        body: JSON.stringify({ status: 'completed' }),
+      });
+
+      // Update assignments
+      await fetch(`${SUPABASE_URL}/rest/v1/assignments?order_id=eq.${orderId}`, {
+        method: 'PATCH',
+        headers: supabaseHeaders,
+        body: JSON.stringify({ status: 'completed', delivered_at: new Date().toISOString() }),
+      });
+
       // Log event
       await supabaseInsert('order_events', {
         order_id: orderId,
