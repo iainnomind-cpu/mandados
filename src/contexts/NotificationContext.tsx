@@ -201,71 +201,52 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
             )
             .subscribe();
 
-        // ── Channel 2: New orders — bot_order vs manual ──
-        const ordersInsertChannel = supabase
-            .channel('global-orders-insert')
+        // ── Channel 2: All Order events (Insert, Update) ──
+        const ordersChannel = supabase
+            .channel('global-orders-notifications')
             .on(
                 'postgres_changes',
                 {
-                    event: 'INSERT',
+                    event: '*',
                     schema: 'public',
                     table: 'orders',
                 },
                 (payload) => {
                     if (!readyRef.current) return;
-                    const order = payload.new as any;
-                    const isBot = order.source === 'whatsapp' || order.source === 'bot';
-                    addNotificationRef.current({
-                        type: isBot ? 'bot_order' : 'new_order',
-                        title: isBot ? '🤖 ¡Bot tomó un pedido!' : '📦 ¡Nuevo pedido!',
-                        body: `${order.order_number || 'Sin número'} — ${order.customer_name || 'Cliente WhatsApp'}`,
-                    });
-                }
-            )
-            .subscribe();
 
-        // ── Channel 3: Orders marked as delivered ──
-        const deliveredChannel = supabase
-            .channel('global-orders-delivered')
-            .on(
-                'postgres_changes',
-                {
-                    event: 'UPDATE',
-                    schema: 'public',
-                    table: 'orders',
-                    filter: 'status=eq.delivered',
-                },
-                (payload) => {
-                    if (!readyRef.current) return;
-                    const order = payload.new as any;
-                    addNotificationRef.current({
-                        type: 'driver_delivered',
-                        title: '✅ ¡Pedido entregado!',
-                        body: `${order.order_number || 'Sin número'} — ${order.customer_name || ''} entregado con éxito.`,
-                    });
-                }
-            )
-            .subscribe();
+                    if (payload.eventType === 'INSERT') {
+                        const order = payload.new as any;
+                        // Checking all bot sources from webhook
+                        const isBot = ['whatsapp', 'bot', 'chatbot', 'whatsapp_bot'].includes(order.source);
+                        addNotificationRef.current({
+                            type: isBot ? 'bot_order' : 'new_order',
+                            title: isBot ? '🤖 ¡Bot tomó un pedido!' : '📦 ¡Nuevo pedido!',
+                            body: `${order.order_number || 'Sin número'} — ${order.customer_name || 'Cliente WhatsApp'}`,
+                        });
+                    } else if (payload.eventType === 'UPDATE') {
+                        const order = payload.new as any;
+                        const oldOrder = payload.old as any;
+                        
+                        // Si oldOrder.status existe, comprobamos que realmente haya cambiado el estado.
+                        // Si no existe (por defecto en REPLICA IDENTITY), asumiremos que el evento es la transición
+                        // porque el webhook solo actualiza el status y las special_instructions una vez.
+                        const statusChangedToProblem = order.status === 'problem' && oldOrder.status !== 'problem';
+                        const statusChangedToDelivered = order.status === 'delivered' && oldOrder.status !== 'delivered';
 
-        // ── Channel 4: Orders with problem (urgent alert) ──
-        const problemChannel = supabase
-            .channel('global-orders-problem')
-            .on(
-                'postgres_changes',
-                {
-                    event: 'UPDATE',
-                    schema: 'public',
-                    table: 'orders',
-                    filter: 'status=eq.problem',
-                },
-                (payload) => {
-                    if (!readyRef.current) return;
-                    const order = payload.new as any;
-                    addNotificationRef.current({
-                        type: 'order_problem',
-                        title: '🚨 ¡Problema en pedido!',
-                        body: `${order.order_number || 'Sin número'} — ${order.customer_name || 'Cliente'} — El repartidor reportó un problema.`,
-                    });
+                        if (statusChangedToProblem) {
+                            addNotificationRef.current({
+                                type: 'order_problem',
+                                title: '🚨 ¡Problema en pedido!',
+                                body: `${order.order_number || 'Sin número'} — ${order.customer_name || 'Cliente'} — El repartidor reportó un problema.`,
+                            });
+                        } else if (statusChangedToDelivered) {
+                            addNotificationRef.current({
+                                type: 'driver_delivered',
+                                title: '✅ ¡Pedido entregado!',
+                                body: `${order.order_number || 'Sin número'} — ${order.customer_name || ''} entregado con éxito.`,
+                            });
+                        }
+                    }
                 }
             )
             .subscribe();
@@ -273,9 +254,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
         return () => {
             clearTimeout(readyTimer);
             supabase.removeChannel(msgsChannel);
-            supabase.removeChannel(ordersInsertChannel);
-            supabase.removeChannel(deliveredChannel);
-            supabase.removeChannel(problemChannel);
+            supabase.removeChannel(ordersChannel);
         };
     }, []);
 
