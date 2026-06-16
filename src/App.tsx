@@ -30,6 +30,16 @@ function AppContent() {
     return () => window.removeEventListener('erp:navigate-to-chat', handler);
   }, []);
 
+  // Listen for generic module navigation events (e.g. from order_problem toast)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const module = (e as CustomEvent<string>).detail;
+      if (module) setCurrentModule(module);
+    };
+    window.addEventListener('erp:navigate-to-module', handler);
+    return () => window.removeEventListener('erp:navigate-to-module', handler);
+  }, []);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-100 flex items-center justify-center">

@@ -14,6 +14,8 @@ function getTypeConfig(type: AppNotification['type']) {
     switch (type) {
         case 'escalation':
             return { Icon: AlertTriangle, iconBg: 'bg-red-500 text-white', cardBg: 'bg-red-50 border-red-300 shadow-red-500/30', textTitle: 'text-red-800', textBody: 'text-red-600', listBg: 'border-red-100 bg-red-50/60' };
+        case 'order_problem':
+            return { Icon: AlertTriangle, iconBg: 'bg-orange-500 text-white', cardBg: 'bg-orange-50 border-orange-300 shadow-orange-500/20', textTitle: 'text-orange-900', textBody: 'text-orange-700', listBg: 'border-orange-100 bg-orange-50/60' };
         case 'new_message':
             return { Icon: MessageCircle, iconBg: 'bg-blue-500 text-white', cardBg: 'bg-white border-blue-200', textTitle: 'text-slate-800', textBody: 'text-slate-500', listBg: 'border-slate-100 bg-white' };
         case 'bot_order':
@@ -161,17 +163,19 @@ export function NotificationBell() {
 // ─── Floating toast — bottom-center ───
 export default function GlobalNotifications() {
     const { latestToast, dismissToast } = useGlobalNotifications();
-    const isEscalation = latestToast?.type === 'escalation';
+    const isUrgent = latestToast?.type === 'escalation' || latestToast?.type === 'order_problem';
 
     useEffect(() => {
         if (!latestToast) return;
-        const timer = setTimeout(dismissToast, isEscalation ? 15000 : 5000);
+        const timer = setTimeout(dismissToast, isUrgent ? 15000 : 5000);
         return () => clearTimeout(timer);
-    }, [latestToast, dismissToast, isEscalation]);
+    }, [latestToast, dismissToast, isUrgent]);
 
     if (!latestToast) return null;
 
     const { Icon, iconBg, cardBg, textTitle, textBody } = getTypeConfig(latestToast.type);
+    const isEscalation = latestToast.type === 'escalation';
+    const isProblem = latestToast.type === 'order_problem';
 
     const handleGoToChat = () => {
         navigateToChatConversation(latestToast.conversationId);
@@ -182,11 +186,11 @@ export default function GlobalNotifications() {
         <>
             <div
                 className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[9999] w-full max-w-md px-4"
-                style={{ animation: isEscalation ? 'notif-rise-shake 0.5s ease-out' : 'notif-rise 0.3s ease-out' }}
+                style={{ animation: isUrgent ? 'notif-rise-shake 0.5s ease-out' : 'notif-rise 0.3s ease-out' }}
             >
                 <div className={`flex flex-col rounded-2xl shadow-2xl border overflow-hidden ${cardBg}`}>
                     <div className="flex items-center gap-3 px-4 py-3.5">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${iconBg} ${isEscalation ? 'animate-pulse' : ''}`}>
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${iconBg} ${isUrgent ? 'animate-pulse' : ''}`}>
                             <Icon className="w-5 h-5" />
                         </div>
                         <div className="flex-1 min-w-0">
@@ -213,6 +217,17 @@ export default function GlobalNotifications() {
                         >
                             <MessageCircle className="w-4 h-4" />
                             Ir al chat con el problema
+                            <ArrowRight className="w-4 h-4" />
+                        </button>
+                    )}
+                    {/* Navigate to dispatch for order_problem */}
+                    {isProblem && (
+                        <button
+                            onClick={() => { window.dispatchEvent(new CustomEvent('erp:navigate-to-module', { detail: 'dispatch' })); dismissToast(); }}
+                            className="flex items-center justify-center gap-2 px-4 py-3 bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white text-sm font-bold transition-colors"
+                        >
+                            <AlertTriangle className="w-4 h-4" />
+                            Ver en Despacho
                             <ArrowRight className="w-4 h-4" />
                         </button>
                     )}

@@ -18,6 +18,7 @@ interface OrderDetailsModalProps {
   onDelete: (order: OrderWithItems) => void;
 }
 
+// ─── Status helpers inside OrderDetailsModal.tsx ───
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Pendiente',
   confirmed: 'Confirmado',
@@ -25,6 +26,7 @@ const STATUS_LABELS: Record<string, string> = {
   in_transit: 'En tránsito',
   delivered: 'Entregado',
   cancelled: 'Cancelado',
+  problem: 'Con problema',
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -34,6 +36,7 @@ const STATUS_COLORS: Record<string, string> = {
   in_transit: 'bg-orange-100 text-orange-800 border-orange-200',
   delivered: 'bg-green-100 text-green-800 border-green-200',
   cancelled: 'bg-red-100 text-red-800 border-red-200',
+  problem: 'bg-rose-100 text-rose-800 border-rose-200',
 };
 
 function StatusBadge({ status }: { status: string }) {
@@ -436,7 +439,31 @@ export default function OrderDetailsModal({
                     Cancelar
                   </button>
                 )}
-                {order.status !== 'in_transit' && (
+                {order.status === 'problem' && (
+                  <button
+                    onClick={async () => {
+                      setSavingStatus(true);
+                      try {
+                        const cleanInstructions = order.special_instructions?.replace(/\[PROBLEMA:.*?\]/g, '').trim() || null;
+                        await supabase
+                          .from('orders')
+                          .update({ status: 'in_transit', special_instructions: cleanInstructions })
+                          .eq('id', order.id);
+                        onToast('Reintento de entrega iniciado', 'success');
+                        onUpdate();
+                      } catch (err: any) {
+                        onToast(err.message, 'error');
+                      } finally {
+                        setSavingStatus(false);
+                      }
+                    }}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    <Truck className="w-3.5 h-3.5" />
+                    Reintentar Entrega
+                  </button>
+                )}
+                {order.status !== 'in_transit' && order.status !== 'problem' && (
                   <button
                     onClick={() => { setNewStatus('in_transit'); }}
                     className="flex items-center gap-1.5 px-3 py-1.5 border border-orange-200 text-orange-600 text-xs font-medium rounded-lg hover:bg-orange-50 transition-colors"

@@ -138,13 +138,14 @@ export default function DispatchManagement() {
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {problemOrders.map((po) => (
-                  <span
+                  <button
                     key={po.id}
-                    className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/80 border border-rose-200 rounded-lg text-xs font-medium text-rose-800 shadow-sm"
+                    onClick={() => setViewOrder(po)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/80 hover:bg-rose-50 border border-rose-200 rounded-lg text-xs font-medium text-rose-800 shadow-sm transition-colors"
                   >
                     <AlertTriangle className="w-3 h-3 text-rose-500" />
                     {po.order_number} — {po.driverName ?? 'Sin conductor'}
-                  </span>
+                  </button>
                 ))}
               </div>
             </div>

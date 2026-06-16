@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 // ─── Types ───
 export interface AppNotification {
     id: string;
-    type: 'new_message' | 'new_order' | 'escalation' | 'bot_order' | 'driver_delivered';
+    type: 'new_message' | 'new_order' | 'escalation' | 'bot_order' | 'driver_delivered' | 'order_problem';
     title: string;
     body: string;
     timestamp: string;
@@ -28,7 +28,7 @@ interface NotificationContextValue {
 const NotificationContext = createContext<NotificationContextValue | null>(null);
 
 // ─── Sound helper (Web Audio API — no files needed) ───
-function playNotificationSound(type: 'message' | 'order' | 'escalation' | 'bot_order' | 'driver_delivered') {
+function playNotificationSound(type: 'message' | 'order' | 'escalation' | 'bot_order' | 'driver_delivered' | 'order_problem') {
     try {
         const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
         const oscillator = ctx.createOscillator();
@@ -75,6 +75,17 @@ function playNotificationSound(type: 'message' | 'order' | 'escalation' | 'bot_o
             oscillator.frequency.setValueAtTime(784, ctx.currentTime);
             oscillator.frequency.setValueAtTime(1047, ctx.currentTime + 0.18);
             gainNode.gain.setValueAtTime(0.35, ctx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+            oscillator.start(ctx.currentTime);
+            oscillator.stop(ctx.currentTime + 0.55);
+        } else if (type === 'order_problem') {
+            // Urgent descending beep — "something's wrong"
+            oscillator.type = 'square';
+            oscillator.frequency.setValueAtTime(800, ctx.currentTime);
+            gainNode.gain.setValueAtTime(0.4, ctx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.2);
+            gainNode.gain.setValueAtTime(0.4, ctx.currentTime + 0.3);
+            oscillator.frequency.setValueAtTime(500, ctx.currentTime + 0.3);
             gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
             oscillator.start(ctx.currentTime);
             oscillator.stop(ctx.currentTime + 0.55);
@@ -126,6 +137,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
             : n.type === 'new_message' ? 'message'
             : n.type === 'bot_order' ? 'bot_order'
             : n.type === 'driver_delivered' ? 'driver_delivered'
+            : n.type === 'order_problem' ? 'order_problem'
             : 'order'
         );
 
@@ -235,11 +247,35 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
             )
             .subscribe();
 
+        // ── Channel 4: Orders with problem (urgent alert) ──
+        const problemChannel = supabase
+            .channel('global-orders-problem')
+            .on(
+                'postgres_changes',
+                {
+                    event: 'UPDATE',
+                    schema: 'public',
+                    table: 'orders',
+                    filter: 'status=eq.problem',
+                },
+                (payload) => {
+                    if (!readyRef.current) return;
+                    const order = payload.new as any;
+                    addNotificationRef.current({
+                        type: 'order_problem',
+                        title: '🚨 ¡Problema en pedido!',
+                        body: `${order.order_number || 'Sin número'} — ${order.customer_name || 'Cliente'} — El repartidor reportó un problema.`,
+                    });
+                }
+            )
+            .subscribe();
+
         return () => {
             clearTimeout(readyTimer);
             supabase.removeChannel(msgsChannel);
             supabase.removeChannel(ordersInsertChannel);
             supabase.removeChannel(deliveredChannel);
+            supabase.removeChannel(problemChannel);
         };
     }, []);
 

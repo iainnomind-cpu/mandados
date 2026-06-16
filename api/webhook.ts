@@ -249,6 +249,43 @@ async function sendWhatsAppMessage(to: string, text: string): Promise<void> {
 }
 
 // ─────────────────────────────────────────────────────────
+// WhatsApp interactive button message helper
+// ─────────────────────────────────────────────────────────
+async function sendWhatsAppInteractiveButtons(
+  to: string,
+  bodyText: string,
+  buttons: { id: string; title: string }[]
+): Promise<void> {
+  const res = await fetch(GRAPH_API_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${WHATSAPP_TOKEN}`,
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      to,
+      type: 'interactive',
+      interactive: {
+        type: 'button',
+        body: { text: bodyText },
+        action: {
+          buttons: buttons.map((b) => ({
+            type: 'reply',
+            reply: { id: b.id, title: b.title },
+          })),
+        },
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const error = await res.text();
+    console.error('❌ Error enviando botones interactivos WhatsApp:', error);
+  }
+}
+
+// ─────────────────────────────────────────────────────────
 // WhatsApp Media download helper
 // ─────────────────────────────────────────────────────────
 async function downloadWhatsAppMedia(mediaId: string): Promise<string | null> {
@@ -1365,7 +1402,7 @@ async function processDriverButtonResponse(from: string, payload: string): Promi
         status: 'problem',
       });
 
-      // Log event (keep driver_id for admin reference)
+      // Log event
       await supabaseInsert('order_events', {
         order_id: orderId,
         event_type: 'problem_reported',
@@ -1378,8 +1415,63 @@ async function processDriverButtonResponse(from: string, payload: string): Promi
         },
       });
 
-      await sendWhatsAppMessage(from, `⚠️ El pedido ${order.order_number || ''} ha sido marcado como *con problemas*. La central ha sido notificada y se pondrá en contacto contigo.`);
       console.log(`⚠️ Pedido ${orderId} marcado con problemas por repartidor ${from}`);
+
+      // Ask the driver what kind of problem occurred (interactive buttons)
+      try {
+        await sendWhatsAppInteractiveButtons(
+          from,
+          `⚠️ El pedido ${order.order_number || ''} fue marcado con problema.\n\n¿Cuál fue la causa del inconveniente?`,
+          [
+            { id: `PROBLEM_CAUSE_ABSENT:${orderId}`, title: '🚪 Cliente ausente' },
+            { id: `PROBLEM_CAUSE_ADDRESS:${orderId}`, title: '📍 Dir. incorrecta' },
+            { id: `PROBLEM_CAUSE_CANCEL:${orderId}`, title: '❌ Cliente canceló' },
+          ]
+        );
+      } catch (_) {
+        // Fallback to plain text if interactive fails
+        await sendWhatsAppMessage(from,
+          `⚠️ Pedido ${order.order_number || ''} marcado con problema. ¿Cuál fue la causa?\n\n` +
+          `Responde con:\n1️⃣ Cliente ausente\n2️⃣ Dirección incorrecta\n3️⃣ Cliente canceló\n4️⃣ Problema de pago`
+        );
+      }
+
+    } else if (action.startsWith('PROBLEM_CAUSE_')) {
+      // ── Driver selected the problem cause ──
+      const causeMap: Record<string, string> = {
+        'PROBLEM_CAUSE_ABSENT': 'cliente_ausente',
+        'PROBLEM_CAUSE_ADDRESS': 'direccion_incorrecta',
+        'PROBLEM_CAUSE_CANCEL': 'cliente_cancelo',
+        'PROBLEM_CAUSE_PAYMENT': 'problema_pago',
+      };
+      const causeKey = causeMap[action] || 'otro';
+
+      const causeLabel: Record<string, string> = {
+        'cliente_ausente': '🚪 Cliente ausente',
+        'direccion_incorrecta': '📍 Dirección incorrecta',
+        'cliente_cancelo': '❌ Cliente canceló',
+        'problema_pago': '💳 Problema de pago',
+        'otro': '❓ Otro',
+      };
+
+      // Update the order with the problem cause
+      await supabaseUpdate('orders', orderId, {
+        special_instructions: `[PROBLEMA: ${causeLabel[causeKey]}]`,
+      });
+
+      // Log the cause
+      await supabaseInsert('order_events', {
+        order_id: orderId,
+        event_type: 'problem_cause_reported',
+        description: `Causa del problema: ${causeLabel[causeKey]}`,
+        metadata: { cause: causeKey, driver_phone: from },
+      });
+
+      await sendWhatsAppMessage(
+        from,
+        `✅ Gracias. Se registró la causa: *${causeLabel[causeKey]}*.\n\nLa central ha sido notificada y se pondrá en contacto contigo para indicarte los siguientes pasos. Mantente en espera. 🙏`
+      );
+      console.log(`📝 Causa de problema registrada para pedido ${orderId}: ${causeKey}`);
 
     } else {
       console.warn('⚠️ Acción de botón desconocida:', action);
@@ -1483,13 +1575,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
                 }
 
               } else if (msgType === 'interactive') {
-                // Interactive message — driver pressed a quick reply button
+                // Interactive message — driver pressed a quick reply or list button
                 const buttonReply = message.interactive?.button_reply;
-                if (buttonReply?.id) {
-                  console.log(`🔘 Botón interactivo recibido de ${from}: ${buttonReply.id}`);
-                  await processDriverButtonResponse(from, buttonReply.id);
+                const listReply = message.interactive?.list_reply;
+                const replyId = buttonReply?.id || listReply?.id;
+                if (replyId) {
+                  console.log(`🔘 Respuesta interactiva de ${from}: ${replyId}`);
+                  await processDriverButtonResponse(from, replyId);
                 } else {
-                  console.warn('⚠️ Mensaje interactivo sin button_reply:', JSON.stringify(message.interactive));
+                  console.warn('⚠️ Mensaje interactivo sin reply id:', JSON.stringify(message.interactive));
                 }
 
               } else {
