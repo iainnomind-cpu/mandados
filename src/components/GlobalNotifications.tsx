@@ -37,10 +37,23 @@ function NotificationItem({
 }) {
     const { Icon, iconBg, listBg, textTitle, textBody } = getTypeConfig(n.type);
     const isEscalation = n.type === 'escalation';
+    const isProblem = n.type === 'order_problem';
+    const isDelivery = n.type === 'driver_delivered';
+    const isNewOrder = n.type === 'bot_order' || n.type === 'new_order';
     const timeStr = new Date(n.timestamp).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
 
     const handleGoToChat = () => {
-        navigateToChatConversation(n.conversationId);
+        window.dispatchEvent(new CustomEvent('erp:navigate-to-chat', { detail: n.conversationId }));
+        onClose?.();
+    };
+
+    const handleGoToDispatch = () => {
+        window.dispatchEvent(new CustomEvent('erp:navigate-to-module', { detail: 'dispatch' }));
+        onClose?.();
+    };
+
+    const handleGoToOrders = () => {
+        window.dispatchEvent(new CustomEvent('erp:navigate-to-module', { detail: 'orders' }));
         onClose?.();
     };
 
@@ -57,7 +70,7 @@ function NotificationItem({
                 <span className="text-[10px] text-slate-400 shrink-0 mt-0.5">{timeStr}</span>
             </div>
 
-            {/* Go to chat button inside the dropdown for escalations */}
+            {/* Action buttons inside the dropdown */}
             {isEscalation && (
                 <button
                     onClick={handleGoToChat}
@@ -65,6 +78,30 @@ function NotificationItem({
                 >
                     <MessageCircle className="w-3 h-3" />
                     Ir al chat ahora
+                    <ArrowRight className="w-3 h-3" />
+                </button>
+            )}
+            
+            {isProblem && (
+                <button
+                    onClick={handleGoToDispatch}
+                    className="mx-4 mb-3 flex items-center justify-center gap-1.5 py-1.5 bg-orange-500 hover:bg-orange-600 text-white text-[11px] font-bold rounded-lg transition-colors"
+                >
+                    <AlertTriangle className="w-3 h-3" />
+                    Ver en Despacho
+                    <ArrowRight className="w-3 h-3" />
+                </button>
+            )}
+
+            {(isDelivery || isNewOrder) && (
+                <button
+                    onClick={handleGoToOrders}
+                    className={`mx-4 mb-3 flex items-center justify-center gap-1.5 py-1.5 text-white text-[11px] font-bold rounded-lg transition-colors ${
+                        isDelivery ? 'bg-emerald-500 hover:bg-emerald-600' : 'bg-blue-500 hover:bg-blue-600'
+                    }`}
+                >
+                    <Package className="w-3 h-3" />
+                    Ver en Pedidos
                     <ArrowRight className="w-3 h-3" />
                 </button>
             )}
@@ -82,8 +119,7 @@ export function NotificationBell() {
     } = useGlobalNotifications();
 
     const [showPanel, setShowPanel] = useState(false);
-    const escalationCount = notifications.filter(n => n.type === 'escalation' && !n.read).length;
-
+    const urgentCount = notifications.filter(n => (n.type === 'escalation' || n.type === 'order_problem') && !n.read).length;
 
     return (
         <div className="relative">
@@ -92,9 +128,9 @@ export function NotificationBell() {
                 className="relative p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
                 title="Notificaciones"
             >
-                <Bell className={`w-5 h-5 ${escalationCount > 0 ? 'text-red-500' : ''}`} />
+                <Bell className={`w-5 h-5 ${urgentCount > 0 ? 'text-red-500' : ''}`} />
                 {unreadCount > 0 && (
-                    <span className={`absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 text-white text-[10px] font-bold rounded-full flex items-center justify-center ${escalationCount > 0 ? 'bg-red-500 animate-pulse' : 'bg-blue-500'
+                    <span className={`absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 text-white text-[10px] font-bold rounded-full flex items-center justify-center ${urgentCount > 0 ? 'bg-red-500 animate-pulse' : 'bg-blue-500'
                         }`}>
                         {unreadCount > 9 ? '9+' : unreadCount}
                     </span>
@@ -112,9 +148,9 @@ export function NotificationBell() {
                             <div className="flex items-center gap-2">
                                 <Bell className="w-4 h-4 text-white" />
                                 <h4 className="text-sm font-bold text-white">Notificaciones</h4>
-                                {escalationCount > 0 && (
+                                {urgentCount > 0 && (
                                     <span className="text-[10px] font-bold bg-red-400 text-white px-2 py-0.5 rounded-full animate-pulse">
-                                        {escalationCount} urgente{escalationCount > 1 ? 's' : ''}
+                                        {urgentCount} urgente{urgentCount > 1 ? 's' : ''}
                                     </span>
                                 )}
                             </div>
