@@ -345,24 +345,38 @@ interface OAIMessage {
 async function getChatGPTResponse(messages: OAIMessage[], useVision: boolean = false): Promise<string> {
   const model = useVision ? 'gpt-4o' : 'gpt-4o-mini';
 
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${OPENAI_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature: 0.7,
-      max_tokens: 500,
-    }),
-  });
+  // Guard: verify key exists before making the call
+  if (!OPENAI_API_KEY) {
+    console.error('❌ OPENAI_API_KEY no está configurada en las variables de entorno de Vercel');
+    throw new Error('OPENAI_API_KEY no configurada');
+  }
+
+  let res: Response;
+  try {
+    res = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: 0.7,
+        max_tokens: 500,
+      }),
+    });
+  } catch (networkErr: any) {
+    console.error('❌ Error de red al conectar con OpenAI:', networkErr.message);
+    throw new Error(`Sin conexión a OpenAI (${networkErr.message})`);
+  }
 
   if (!res.ok) {
-    const error = await res.text();
-    console.error('❌ Error OpenAI:', error);
-    throw new Error(`OpenAI error: ${error}`);
+    const errorText = await res.text();
+    console.error(`❌ OpenAI HTTP ${res.status}:`, errorText);
+    if (res.status === 401) throw new Error('OpenAI: clave inválida o expirada');
+    if (res.status === 429) throw new Error('OpenAI: límite de uso o saldo agotado');
+    throw new Error(`OpenAI error ${res.status}`);
   }
 
   const data = await res.json();
